@@ -20,5 +20,19 @@ When a joystick button or axis is operated, the joystick fires some events in re
 For a list of all events visit [pygame.org](https://www.pygame.org/docs/ref/event.html#pygame.event.Event)
 
 ### Event Id for PS2 joystick
-|SN|SYMBOL/KEY|EVENT ID|
-|1|Triangle|0|
+
+| SN | SYMBOL/KEY | EVENT ID |  
+|----|------------|----------|
+| 1 | Triangle | 0 |
+| 2 | Circle | 1 |
+| 3 | Times | 2 |
+| 4 | Square | 3 |
+| 5 | Left 1 | 4 |
+| 6 | Right 1 | 5 |
+| 7 | Left 2 | 6 |
+| 8 | Right 2 | 7 |
+| 9 | Select | 8 |
+| 10 | Start | 9 |
+| 11 | Left steering button | 10 |
+| 12 | Right steering button | 11 |
+| 13 | Mode | 12 |
