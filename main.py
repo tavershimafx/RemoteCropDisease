@@ -52,6 +52,18 @@ INPUT_DIM = (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE)
 
 
 def crop_and_resize(img, x, y, w, h):
+    """
+    This method crops the image at the cordinates given and resizes it to 224,224 which is the dimension the plant disease ai model accepts
+    Args:
+        img (_nparray_): image array
+        x (_int_): x cordinate of the top corner
+        y (_int_): y cordingate of the top corner
+        w (_int_): width of the image
+        h (_int_): height of the image
+
+    Returns:
+        _nparray_: resized image array
+    """
     cropped_image = img[y : y + h, x : x + w]
     # resize the image to fit the model input shape
     resized_cropped_image = cv2.resize(
@@ -64,6 +76,15 @@ def crop_and_resize(img, x, y, w, h):
 
 
 def tflite_predict(input_model, data):
+    """
+
+    Args:
+        input_model (_kerasmodel_): _this is the loaded input model_
+        data (_nparray_): _this is the input image of shape 1,224,244,3_
+
+    Returns:
+        _nparray_: _this is the prediction of the network of shape 1,38 which contains the probability for all the 38 classes _
+    """
     input_details = input_model.get_input_details()
     # print(input_details)
     output_details = input_model.get_output_details()
@@ -74,6 +95,15 @@ def tflite_predict(input_model, data):
 
 
 def detect_leaf(img):
+    """
+    This method detects all the leaves in the image by dropping all non green colors and creating a mask on the green objects
+    Args:
+        img (_nparray_): _raw image from the camera_
+
+    Returns:
+        _nparray_: _mask with non green pixels set to 0,(black) and green pixels set to 255 _
+        _nparray_: _image with non green pixel set to 0 and green pixel left the way the are(this image would be given to the plant diesase detection ai/neural network)_
+    """
     lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
     # store the a-channel
     a_channel = lab[:, :, 1]
@@ -100,10 +130,6 @@ class Thread(QThread):
         self.minProbability = 0.99
         # list of the predcitions gotten from the frames
         self.predictions = []
-
-    def set_file(self, fname):
-        # The data comes with the 'opencv-python' module
-        self.trained_file = os.path.join(cv2.data.haarcascades, fname)
 
     def set_minArea(self, area):
         self.minArea = area
@@ -426,6 +452,13 @@ class MainWindow(QMainWindow):
 
     @Slot(dict)
     def updatePredictionList(self, prediction_dict):
+        """
+
+        Args:
+            prediction_dict (_type_): _description_
+        This method connects to the predictions signals emmitted by the thread
+        and updates the Predictions group box with all the predictions by the network
+        """
         print(f"This is the prediction dictionary {prediction_dict}")
         leaf = prediction_dict["leaf"]
         probability = prediction_dict["probability"]
@@ -450,6 +483,9 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def export_to_csv(self):
+        """
+        This method exports the
+        """
         if len(self.probabilities) != 0 and len(self.leafs) != 0:
             # data
             data = {"leaf": self.leafs, "probability": self.probabilities}
