@@ -115,6 +115,12 @@ class Thread(QThread):
         self.isPredict = not self.isPredict
 
     def run(self):
+        """
+        This function extracts the frames one by one
+        from the self.cap attribute and process them
+        detecting and drawing bounding boxes on the frames
+        and emiting each frame to the MainWindow
+        """
         self.cap = cv2.VideoCapture(0)
         while self.status:
             # substitute this for the drone camera feed
@@ -128,8 +134,6 @@ class Thread(QThread):
             # find contours on the image
             ret, thresh = cv2.threshold(mask, 127, 255, 0)
             contours, hierarchy = cv2.findContours(thresh, 1, 2)
-            roi_list = []
-            resized_cropped_images = []
             if self.isPredict:
                 for c in contours:
                     prediction_dict = {}
@@ -140,12 +144,6 @@ class Thread(QThread):
                     area = cv2.contourArea(c)
                     if area > self.minArea:
                         resized_cropped_image = crop_and_resize(masked, x, y, w, h)
-                        # resized_cropped_images.append(resized_cropped_image)
-                        # roi_dict["x"] = x
-                        # roi_dict["y"] = y
-                        # roi_dict["w"] = w
-                        # roi_dict["h"] = h
-                        # roi_list.append(roi_dict)
                         preds = tflite_predict(tflite_model, resized_cropped_image)
 
                         predicted_value = preds[0][np.argmax(preds[0])]
@@ -196,7 +194,9 @@ class MainWindow(QMainWindow):
         self.isDroneOn = False
         self.minArea = 500
         self.minProbability = 0.8
+        # holds the names of all the leafs predicted to be exported to csv
         self.leafs = []
+        # holds the probabilities of the predictions to be exported to csv
         self.probabilities = []
 
         # Main menu bar
@@ -231,12 +231,9 @@ class MainWindow(QMainWindow):
 
         top_slider_layout = QHBoxLayout()
         bottom_slider_layout = QHBoxLayout()
-
-        # set default values for area and threshold
-        self.area = 0
-        self.threshold = 0
-
+        # this is the slider that controls the area value
         self.areaSlider = QSlider(orientation=Qt.Orientation.Horizontal)
+        # this is the threshold slider that controls the minimum probability to be considered by the network
         self.thresholdSlider = QSlider(orientation=Qt.Orientation.Horizontal)
         self.areaSlider.setMinimum(100)
         self.areaSlider.setMaximum(1000)
@@ -244,10 +241,6 @@ class MainWindow(QMainWindow):
         self.thresholdSlider.setMinimum(0)
         self.thresholdSlider.setMaximum(100)
         self.thresholdSlider.setTickInterval(10)
-
-        # for xml_file in os.listdir(cv2.data.haarcascades):
-        #     if xml_file.endswith(".xml"):
-        #         self.combobox.addItem(xml_file)
 
         top_slider_layout.addWidget(QLabel("Area"), 5)
         self.areaLabel = QLabel(f"{self.minArea}")
@@ -347,14 +340,6 @@ class MainWindow(QMainWindow):
         self.velocity_altitude_group.setLayout(velocity_altitude_group_layout)
         self.velocity_altitude_group.setFixedHeight(150)
 
-        # box responsible for displaying the altitude of the drone
-        # self.altitude_group = QGroupBox("Altitude")
-        # altitude_group_layout = QVBoxLayout()
-        # self.altitude_label = QLabel("0cm")
-        # altitude_group_layout.addWidget(self.altitude_label)
-        # self.altitude_group.setLayout(altitude_group_layout)
-        # self.altitude_group.setFixedHeight(150)
-
         self.predictions_group = QGroupBox("Top Predictions")
         self.export_to_csv_button = QPushButton("Export to CSV")
         self.csv_btn_layout = QHBoxLayout()
@@ -362,44 +347,9 @@ class MainWindow(QMainWindow):
         self.csv_btn_layout.addStretch()
         self.predictions_group_layout = QVBoxLayout()
         self.predictions_group_layout.addLayout(self.csv_btn_layout)
-        # predictions = [
-        #     {"leaf": "apple", "probability": "90%"},
-        #     {"leaf": "corn", "probability": "70%"},
-        #     {"leaf": "tomato", "probability": "80%"},
-        #     {"leaf": "soyabeans healthy", "probability": "90%"},
-        #     {"leaf": "strawberry leaf scorch", "probability": "60%"},
-        #     {"leaf": "peach healthy", "probability": "80%"},
-        #     {"leaf": "Blue berry", "probability": "99%"},
-        #     {"leaf": "Raspberry healthy", "probability": "88%"},
-        #     {"leaf": "cherry healthy", "probability": "96%"},
-        #     {"leaf": "cherry healthy", "probability": "96%"},
-        #     {"leaf": "cherry healthy", "probability": "96%"},
-        #     {"leaf": "cherry healthy", "probability": "96%"},
-        #     {"leaf": "cherry healthy", "probability": "96%"},
-        #     {"leaf": "cherry healthy", "probability": "96%"},
-        #     {"leaf": "cherry healthy", "probability": "96%"},
-        #     {"leaf": "cherry healthy", "probability": "96%"},
-        # ]
         self.scroll = QScrollArea(self)
         self.scroll.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         self.predictions_layout = QVBoxLayout()
-        # for prediction_dict in predictions:
-        #     leaf = prediction_dict["leaf"]
-        #     probability = prediction_dict["probability"]
-        #     label_layout = QHBoxLayout()
-        #     label_leaf = QLabel(f"{leaf}")
-        #     label_probability = QLabel(f"{probability}")
-        #     label_probability.setStyleSheet("color:green")
-        #     label_layout.addWidget(label_leaf)
-        #     label_layout.addStretch()
-        #     label_layout.addWidget(label_probability)
-        #     self.predictions_layout.addLayout(label_layout)
-        # widget = QWidget()
-        # widget.setLayout(self.predictions_layout)
-        # self.scroll.setWidget(widget)
-        # # scroll.setWidgetResizable(True)
-        # # scroll.setFixedHeight(300)
-        # self.predictions_group_layout.addWidget(self.scroll)
         self.predictions_group_layout.addStretch()
         self.predictions_group.setLayout(self.predictions_group_layout)
         self.predictions_group.setFixedHeight(410)
@@ -439,7 +389,7 @@ class MainWindow(QMainWindow):
         self.thresholdSlider.valueChanged.connect(self.thresholdChange)
         self.areaSlider.valueChanged.connect(self.areaChange)
         self.setNoWifi()
-        self.start()
+        # self.start()
         # Connections
         # self.button1.clicked.connect(self.start)
         # self.button2.clicked.connect(self.kill_thread)
@@ -519,39 +469,50 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def areaChange(self):
+        """
+        This method handles the changes to the areavalue when the area slider is moved
+        """
         # area is a value between 500 and 1000
         # get the value
-        self.area = self.areaSlider.value()
+        self.minArea = self.areaSlider.value()
         # set the value on the label text
-        self.areaLabel.setText(f"{self.area}")
+        self.areaLabel.setText(f"{self.minArea}")
         # set change the area value on the predicton thread
-        self.th.set_minArea(self.area)
+        self.th.set_minArea(self.minArea)
 
     @Slot()
     def thresholdChange(self):
+        """
+        This method handles changes to the minimum porbability value when the threshold slider is moved
+        """
         # threshold is a value between 1 and 100
         # get the value from the threshold slider
         threshold = self.thresholdSlider.value()
         # scale the value by dividing it by 100
         threshold = threshold / 100
-        self.threshold = threshold
+        self.minProbability = threshold
         # set the value on the threshold label text
-        self.thresholdLabel.setText(f"{self.threshold}")
-        self.th.set_minProbability(f"{self.threshold}")
+        self.thresholdLabel.setText(f"{self.minProbability }")
+        self.th.set_minProbability(f"{self.minProbability }")
 
     def setNoWifi(self):
+        """
+        This method sets The wifi icon when the drone is not connected
+        """
         pixmap = QtGui.QPixmap("resources/images/nowifi.jpeg")
         self.label.setPixmap(pixmap)
         # self.setStyleSheet("text-align:center")
         self.label.setStyleSheet(f"qproperty-alignment: {int(QtCore.Qt.AlignCenter)};")
 
     @Slot()
-    def change_drone_icon_color(self):
-
-        pass
-
-    @Slot()
     def connect_pad(self):
+        """
+        This method handles connecting the pad
+        if the connection is successful exec the pad_connection_success dialog
+        and set the pad_button_icon to pad_icon_green
+        else
+        show the pad_connection_failed dialog and set the pad_button_icon to pad_icon_gray (optional)
+        """
         self.pad_connection_success = CustomDialog(
             title="Pad connection", content="Pad connection success"
         )
@@ -568,6 +529,13 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def connect_drone(self):
+        """
+        This method handles connecting the drone
+        if the connection is successful exec the drone_connection_success dialog
+        and set the drone_button_icon to drone_icon_green
+        else
+        show the drone_connection_failed dialog and set the drone_button_icon to drone_icon_gray (optional)
+        """
         self.drone_connection_success = CustomDialog(
             title="Success", content="drone connection success"
         )
@@ -583,6 +551,10 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def start_stop_drone(self):
+        """
+        This method starts and stops the drone
+        you can on and off the drone frome here
+        """
         self.drone_not_connected = CustomDialog(
             title="Error",
             content="Drone is not connected. Please make sure you connect to the drone's wifi",
@@ -591,20 +563,28 @@ class MainWindow(QMainWindow):
             # start up drone
             if self.isDroneOn:
                 # stop the drone
-                self.isDroneOn = False
+                self.isDroneOn = True
                 # set start stop button text to on
                 self.start_stop_button.setText("ON")
+                # drone start should be called here
+                # this method only connects to the drone camera feed
+                self.start()
             else:
                 # start the drone
-                self.isDroneOn = True
+                self.isDroneOn = False
                 # set start stop button text to off
                 self.start_stop_button.setText("OFF")
-            print(self.start_stop_button.text())
+                # call the method to stop the done here
+                # this method only disconnects the drone camera feed
+                self.setNoWifi()
         else:
             self.drone_not_connected.exec()
 
     @Slot()
     def predict_start_stop(self):
+        """
+        This method starts or stops the predictions
+        """
         self.drone_not_connected = CustomDialog(
             title="Error",
             content="Drone is not connected. Please make sure you connect to the drone's wifi",
@@ -628,7 +608,7 @@ class MainWindow(QMainWindow):
             self.drone_icon_color = QColor(255, 0, 0)
             # self.connect_drone_button.setIcon(self.drone_icon_gray)
 
-    # method to set the colored version of the icon
+    # method to set the colored version of the connect drone icon
     def drone_icon_colored(self, color):
 
         # Copy the image
@@ -643,6 +623,7 @@ class MainWindow(QMainWindow):
 
         return QIcon(QPixmap.fromImage(new_image))
 
+    # method to set the colored version of the connect pad icon
     def pad_icon_colored(self, color):
 
         # Copy the image
