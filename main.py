@@ -14,9 +14,9 @@ from PySide6.QtGui import QAction, QImage, QKeySequence, QPixmap, QIcon, QColor
 from PySide6 import QtWidgets, QtSvg, QtGui
 from widgets import CustomDialog
 import pandas as pd
+from pathlib import Path
+from datetime import datetime
 from constants import CLASSES
-
-# from src.UI import ui_main_window
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -154,8 +154,19 @@ class Thread(QThread):
                         prediction_dict["probability"] = predicted_value
                         self.predictions.extend(prediction_dict)
                         if predicted_value > self.minProbability:
+                            prob = round(predicted_value, 2)
+                            text = f"{leaf_type} {prob}"
                             # draw the rectangles on the frame
                             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                            cv2.putText(
+                                frame,
+                                text,
+                                (x + (w // 2) - 10, y + (h // 2) - 10),
+                                cv2.FONT_HERSHEY_COMPLEX,
+                                0.7,
+                                (0, 255, 0),
+                                1,
+                            )
                             self.prediction_dict.emit(prediction_dict)
             # Reading the image in RGB to display it
             color_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -183,6 +194,10 @@ class MainWindow(QMainWindow):
         self.isDroneConnected = True
         self.isPadConnected = False
         self.isDroneOn = False
+        self.minArea = 500
+        self.minProbability = 0.8
+        self.leafs = []
+        self.probabilities = []
 
         # Main menu bar
         self.menu = self.menuBar()
@@ -223,29 +238,32 @@ class MainWindow(QMainWindow):
 
         self.areaSlider = QSlider(orientation=Qt.Orientation.Horizontal)
         self.thresholdSlider = QSlider(orientation=Qt.Orientation.Horizontal)
-        self.areaSlider.setMinimum(0)
-        self.areaSlider.setMaximum(100)
-        self.areaSlider.setTickInterval(1)
-        self.thresholdSlider.setMinimum(500)
-        self.thresholdSlider.setMaximum(1000)
-        self.thresholdSlider.setTickInterval(50)
+        self.areaSlider.setMinimum(100)
+        self.areaSlider.setMaximum(1000)
+        self.areaSlider.setTickInterval(50)
+        self.thresholdSlider.setMinimum(0)
+        self.thresholdSlider.setMaximum(100)
+        self.thresholdSlider.setTickInterval(10)
 
         # for xml_file in os.listdir(cv2.data.haarcascades):
         #     if xml_file.endswith(".xml"):
         #         self.combobox.addItem(xml_file)
 
         top_slider_layout.addWidget(QLabel("Area"), 5)
-        self.areaLabel = QLabel("0")
-        self.areaMinLabel = QLabel("         0")
-        self.areaMaxLabel = QLabel("1")
+        self.areaLabel = QLabel(f"{self.minArea}")
+        self.areaMinLabel = QLabel("         100")
+        self.areaMaxLabel = QLabel("1000")
         top_slider_layout.addWidget(self.areaLabel, 2)
         top_slider_layout.addWidget(self.areaMinLabel, 5)
         top_slider_layout.addWidget(self.areaSlider, 83)
         top_slider_layout.addWidget(self.areaMaxLabel, 5)
 
-        self.thresholdLabel = QLabel("1000")
-        self.thresholdMinLabel = QLabel("         500")
-        self.thresholdMaxLabel = QLabel("1000")
+        self.thresholdLabel = QLabel(f"{self.minProbability}")
+        self.thresholdMinLabel = QLabel("         0")
+        self.thresholdMaxLabel = QLabel("1")
+
+        self.areaSlider.setValue(self.area)
+        self.thresholdSlider.setValue(self.minProbability)
         bottom_slider_layout.addWidget(QLabel("Threshold"), 2)
         bottom_slider_layout.addWidget(self.thresholdLabel, 2)
         bottom_slider_layout.addWidget(self.thresholdMinLabel, 2)
@@ -417,6 +435,9 @@ class MainWindow(QMainWindow):
         self.connect_drone_button.clicked.connect(self.connect_drone)
         self.start_stop_button.clicked.connect(self.start_stop_drone)
         self.predict_button.clicked.connect(self.predict_start_stop)
+        self.export_to_csv_button.clicked.connect(self.export_to_csv)
+        self.thresholdSlider.valueChanged.connect(self.thresholdChange)
+        self.areaSlider.valueChanged.connect(self.areaChange)
         self.setNoWifi()
         self.start()
         # Connections
@@ -458,10 +479,13 @@ class MainWindow(QMainWindow):
         print(f"This is the prediction dictionary {prediction_dict}")
         leaf = prediction_dict["leaf"]
         probability = prediction_dict["probability"]
+        probability = round(probability, 2)
         label_layout = QHBoxLayout()
         label_leaf = QLabel(f"{leaf}")
         label_probability = QLabel(f"{probability}")
         label_probability.setStyleSheet("color:green")
+        self.leafs.append(leaf)
+        self.probabilities.append(probability)
         label_layout.addWidget(label_leaf)
         label_layout.addStretch()
         label_layout.addWidget(label_probability)
@@ -473,6 +497,47 @@ class MainWindow(QMainWindow):
         # scroll.setFixedHeight(300)
         self.predictions_group_layout.addWidget(self.scroll)
         self.predictions_group_layout.addStretch()
+
+    @Slot()
+    def export_to_csv(self):
+        if len(self.probabilities) != 0 and len(self.leafs) != 0:
+            # data
+            data = {"leaf": self.leafs, "probability": self.probabilities}
+            df = pd.DataFrame(data)
+            # desktop path on unix
+            # desktop = os.path.join(os.path.join(os.path.expanduser('~')), 'Desktop')
+            # desktop path on windows
+            # desktop = os.path.join(os.path.join(os.environ["USERPROFILE"]), "Desktop")
+            desktop = os.path.expanduser("~/Desktop")
+            # get the current date time
+            current_dateTime = datetime.now()
+            filepath = Path(
+                f"{desktop}/leaf Disease Detection/predictions/result{current_dateTime}.csv"
+            )
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+            df.to_csv(filepath)
+
+    @Slot()
+    def areaChange(self):
+        # area is a value between 500 and 1000
+        # get the value
+        self.area = self.areaSlider.value()
+        # set the value on the label text
+        self.areaLabel.setText(f"{self.area}")
+        # set change the area value on the predicton thread
+        self.th.set_minArea(self.area)
+
+    @Slot()
+    def thresholdChange(self):
+        # threshold is a value between 1 and 100
+        # get the value from the threshold slider
+        threshold = self.thresholdSlider.value()
+        # scale the value by dividing it by 100
+        threshold = threshold / 100
+        self.threshold = threshold
+        # set the value on the threshold label text
+        self.thresholdLabel.setText(f"{self.threshold}")
+        self.th.set_minProbability(f"{self.threshold}")
 
     def setNoWifi(self):
         pixmap = QtGui.QPixmap("resources/images/nowifi.jpeg")
