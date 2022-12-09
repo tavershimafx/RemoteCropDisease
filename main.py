@@ -127,7 +127,7 @@ class Thread(QThread):
         QThread.__init__(self, parent)
         self.trained_file = None
         self.status = True
-        #self.cap = True
+        
         self.isPredict = False
         self.minArea = 500
         # if the model is not minProbability sure about a prediction it shouldn't return
@@ -135,6 +135,8 @@ class Thread(QThread):
         self.minProbability = 0.8
         # list of the predcitions gotten from the frames
         self.predictions = []
+
+        self.aircraft = Aircraft()
 
     def set_minArea(self, area):
         self.minArea = area
@@ -290,7 +292,7 @@ class MainWindow(QMainWindow):
         self.thresholdMinLabel = QLabel("         0")
         self.thresholdMaxLabel = QLabel("1")
 
-        self.areaSlider.setValue(self.area)
+        self.areaSlider.setValue(self.minArea)
         self.thresholdSlider.setValue(self.minProbability)
         bottom_slider_layout.addWidget(QLabel("Threshold"), 2)
         bottom_slider_layout.addWidget(self.thresholdLabel, 2)
