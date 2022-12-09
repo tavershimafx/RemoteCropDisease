@@ -31,6 +31,19 @@ class Aircraft(object):
         self.has_takeoff = False
 
         self.send_rc_control = False
+        
+        self.is_connected = False
+        self.is_streaming_video = False
+        self.keepRecording = True
+
+        # we need to run the recorder in a seperate thread, otherwise blocking options
+        #  would prevent frames from getting added to the video
+        self.recorder = Thread(target=self.videoRecorder, args=lambda: self.keepRecording)
+
+    def connect(self):
+        """
+        Connect to the drone and activate parameters for streaming
+        """
         self.tello.connect()
         self.tello.set_speed(self.speed)
 
@@ -39,19 +52,14 @@ class Aircraft(object):
         self.tello.streamon()
 
         self.frame_read = self.tello.get_frame_read()
-        
-        self.is_streaming_video = False
-        self.keepRecording = True
 
-        # we need to run the recorder in a seperate thread, otherwise blocking options
-        #  would prevent frames from getting added to the video
-        self.recorder = Thread(target=self.videoRecorder, args=lambda: self.keepRecording)
+        self.is_connected = True
 
     def initite_land(self):
         """
         Land the aircraft
         """
-        if (self.has_takeoff):
+        if (self.is_connected and self.has_takeoff):
             not self.tello.land() # land
             self.send_rc_control = False
             self.has_takeoff = False
@@ -62,7 +70,7 @@ class Aircraft(object):
             for 10 times, if the operation fails then quits.
         """
         retry_times = 0
-        while (retry_times < 10 and not self.has_takeoff):
+        while (self.is_connected and retry_times < 10 and not self.has_takeoff):
             try:
                 self.tello.takeoff() # takeoff
                 self.send_rc_control = True
@@ -81,21 +89,41 @@ class Aircraft(object):
             return False
     
     def move(self, forward_back=0, left_right=0, up_down=0, yaw=0):
-        """Updates the aircraft motion according to the velocities passed to it"""
+        """
+        Updates the aircraft motion according to the velocities passed to it
+        """
+
         self.back_velocity = forward_back
         self.left_right_velocity = left_right
         self.up_down_velocity = up_down
         self.yaw_velocity = yaw
 
-        if self.send_rc_control:
+        if self.is_connected and self.send_rc_control:
             self.tello.send_rc_control(left_right, forward_back, up_down, yaw)
 
+        def clamp100(x: int) -> int:
+            return max(-100, min(100, x))
+
+        cmd = 'rc {} {} {} {}'.format(
+            clamp100(self.left_right_velocity),
+            clamp100(self.back_velocity),
+            clamp100(self.up_down_velocity),
+            clamp100(self.yaw_velocity)
+        )
+
+        if self.is_connected and self.send_rc_control:
+            response = self.tello.send_command_with_return(cmd)
+            print("response from command:", response)
+            return response
+
     def update(self):
-        """ Update routine. Send velocities to Tello.
+        """ 
+        Update routine. Send velocities to Tello.
         """
-        if self.send_rc_control:
-            self.tello.send_rc_control(self.left_right_velocity, self.back_velocity,
-                self.up_down_velocity, self.yaw_velocity)
+        self.move(self.back_velocity, self.left_right_velocity, self.up_down_velocity, self.yaw_velocity)
+        # if self.is_connected and self.send_rc_control:
+        #     self.tello.send_rc_control(self.left_right_velocity, self.back_velocity,
+        #         self.up_down_velocity, self.yaw_velocity)
 
     def capture_image(self):
         """
@@ -105,8 +133,9 @@ class Aircraft(object):
         # create directory if it does not exist
         if not os.path.exists(pictures_folder):
             os.mkdir(pictures_folder)
-            
-        cv2.imwrite(f"{pictures_folder}/{uuid.uuid4().hex}.png", self.frame_read.frame)
+
+        if self.is_connected:    
+            cv2.imwrite(f"{pictures_folder}/{uuid.uuid4().hex}.png", self.frame_read.frame)
 
     def stream_video(self):
         """
@@ -117,31 +146,46 @@ class Aircraft(object):
         if not os.path.exists(pictures_folder):
             os.mkdir(pictures_folder)
             
-        if not self.is_streaming_video:
-            self.keepRecording = True
-            self.recorder.start()
-        else:
-            self.is_streaming_video = False
-            self.keepRecording = False
-            self.recorder._stop_event.set()
-            self.recorder.join()
+        if self.is_connected:
+            if not self.is_streaming_video:
+                self.keepRecording = True
+                self.recorder.start()
+            else:
+                self.is_streaming_video = False
+                self.keepRecording = False
+                self.recorder._stop_event.set()
+                self.recorder.join()
 
     def get_frame(self):
         """Returns the frame handle used to capture images from the vehicle"""
-        return self.frame_read
+        if self.is_connected:
+            return self.frame_read
+        else:
+            return None
 
     def get_battery(self):
         """Returns the battery level of the aircraft"""
-        return self.tello.get_battery()
+        if self.is_connected:
+            return self.tello.get_battery()
+        else:
+            return 0
+
+    def get_altitude(self):
+        """Returns the current altitude of the aircraft"""
+        if self.is_connected:
+            return self.tello.get_height()
+        else:
+            return 0
 
     def videoRecorder(self, keepRecording):
-        # create a VideoWrite object, recoring to ./guid.avi
-        height, width, _ = self.frame_read.frame.shape
-        #video = cv2.VideoWriter(f"{pictures_folder}/{uuid.uuid4().hex}.avi", cv2.VideoWriter_fourcc(*'XVID'), 30, (width, height))
-        video = cv2.VideoWriter(f"{pictures_folder}/{uuid.uuid4().hex}.mp4", cv2.VideoWriter_fourcc(*'MP4V'), 30, (width, height))
-        
-        while keepRecording:
-            video.write(self.frame_read.frame)
-            time.sleep(1 / 30)
+        if self.is_connected:
+            # create a VideoWrite object, recoring to ./guid.avi
+            height, width, _ = self.frame_read.frame.shape
+            #video = cv2.VideoWriter(f"{pictures_folder}/{uuid.uuid4().hex}.avi", cv2.VideoWriter_fourcc(*'XVID'), 30, (width, height))
+            video = cv2.VideoWriter(f"{pictures_folder}/{uuid.uuid4().hex}.mp4", cv2.VideoWriter_fourcc(*'MP4V'), 30, (width, height))
+            
+            while keepRecording:
+                video.write(self.frame_read.frame)
+                time.sleep(1 / 30)
 
-        video.release()
+            video.release()

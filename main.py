@@ -36,7 +36,12 @@ from PySide6.QtWidgets import (
     QScrollArea,
 )
 
+from viewmodels.aircraft import Aircraft
+import pygame
 # qapp = QtWidgets.qApp
+
+# Speed of the drone
+S = 60
 
 """This example uses the video from a  webcam to apply pattern
 detection from the OpenCV module. e.g.: face, eyes, body, etc."""
@@ -122,12 +127,12 @@ class Thread(QThread):
         QThread.__init__(self, parent)
         self.trained_file = None
         self.status = True
-        self.cap = True
+        #self.cap = True
         self.isPredict = False
-        self.minArea = 700
+        self.minArea = 500
         # if the model is not minProbability sure about a prediction it shouldn't return
         # or draw the prediction
-        self.minProbability = 0.99
+        self.minProbability = 0.8
         # list of the predcitions gotten from the frames
         self.predictions = []
 
@@ -147,12 +152,14 @@ class Thread(QThread):
         detecting and drawing bounding boxes on the frames
         and emiting each frame to the MainWindow
         """
-        self.cap = cv2.VideoCapture(0)
         while self.status:
             # substitute this for the drone camera feed
-            ret, frame = self.cap.read()
-            if not ret:
+            # ret, frame = self.cap.read()
+            frame_read = self.aircraft.get_frame() # get a frame from the aircraft
+            if frame_read == None:
                 continue
+
+            frame = frame_read.frame
             # copy the frame to avoid making changes to the orignal frames
             imgContour = frame.copy()
             # the masked image is the original image without the non green parts
@@ -211,19 +218,21 @@ class MainWindow(QMainWindow):
         # Title and dimensions
         self.setWindowTitle("Leaf Disease Detection")
         # self.setGeometry(0, 0, 800, 500)
-        self.setGeometry(0, 0, 1400, 800)
+        self.setGeometry(0, 0, 800, 700)
         # Drone control variables
         self.isStart = False
         self.isPredict = False
-        self.isDroneConnected = True
-        self.isPadConnected = False
-        self.isDroneOn = False
+        
         self.minArea = 500
         self.minProbability = 0.8
         # holds the names of all the leafs predicted to be exported to csv
         self.leafs = []
         # holds the probabilities of the predictions to be exported to csv
         self.probabilities = []
+        
+        # initialize a default. Its uncertain if any joystick is available so we assign None
+        self.joystick = None
+        pygame.init() # Init pygame to enable joystick and media objects
 
         # Main menu bar
         self.menu = self.menuBar()
@@ -407,25 +416,142 @@ class MainWindow(QMainWindow):
         widget.setLayout(layout)
         self.setCentralWidget(widget)
         # self.start()
-        self.connect_pad_button.clicked.connect(self.connect_pad)
+
+        #self.connect_pad_button.clicked.connect(self.connect_pad) # the pad is detected automatically now
+                                                                    #no need for manual connection again
         self.connect_drone_button.clicked.connect(self.connect_drone)
-        self.start_stop_button.clicked.connect(self.start_stop_drone)
+        #self.start_stop_button.clicked.connect(self.start_stop_drone)
         self.predict_button.clicked.connect(self.predict_start_stop)
         self.export_to_csv_button.clicked.connect(self.export_to_csv)
         self.thresholdSlider.valueChanged.connect(self.thresholdChange)
         self.areaSlider.valueChanged.connect(self.areaChange)
         self.setNoWifi()
-        # self.start()
+
+        self.start()
+
+        # create a timer
+        self.timer = QTimer()
+        # set timer timeout callback function
+        self.timer.timeout.connect(self.joystick_handler)
+        self.timer.start(20)
+
         # Connections
         # self.button1.clicked.connect(self.start)
         # self.button2.clicked.connect(self.kill_thread)
         # self.connect_pad_button.setEnabled(False)
         # self.combobox.currentTextChanged.connect(self.set_model)
-
+   
     @Slot()
     def set_model(self, text):
         self.th.set_file(text)
 
+    def joystick_handler(self):
+        battery = "Battery: {}%".format(self.th.aircraft.get_battery())
+        altitude = "Altitude: {}cm".format(self.th.aircraft.get_altitude())
+        self.battery_percentage.setText(battery)
+        self.altitude_label.setText(altitude)
+
+        for event in pygame.event.get():
+            if event.type == pygame.USEREVENT + 1:
+                response = self.th.aircraft.update()
+                self.try_init_aircraft_on_error(response)
+            elif event.type == pygame.JOYBUTTONDOWN:
+                self.keyPressed(event.button)
+            elif event.type == pygame.JOYBUTTONUP:
+                self.keyReleased(event.button)
+            elif event.type == pygame.JOYDEVICEADDED:
+                # This event will be generated when the program starts for any
+                # joystick, automatically detecting it without needing to create it manually.
+                self.joystick = pygame.joystick.Joystick(event.device_index)
+                self.connect_pad_button.setIcon(self.pad_icon_green) # make the pad icon green to signify active
+            elif event.type == pygame.JOYDEVICEREMOVED:
+                self.joystick = None
+                self.connect_pad_button.setIcon(self.pad_icon_gray) # make the pad icon grey to signify inactive
+
+    def keyPressed(self, key):
+        """ Update velocities based on key pressed
+        Arguments:
+            key：an integer value identifying the joystick keyId or axis keyId that was pressed.
+        """
+        # attempt takeoff is not already
+        if not self.th.aircraft.initite_takeoff():
+            return
+
+        if key == 0: # Triangle key
+            response = self.th.aircraft.move(forward_back=S)  # set forward velocity
+            self.try_init_aircraft_on_error(response)
+        elif key == 1: # Circle key
+            response = self.th.aircraft.move(left_right=S)  # set right velocity
+            self.try_init_aircraft_on_error(response)
+        elif key == 2: # Times key
+            response = self.th.aircraft.move(forward_back=-S) # set backward velocity
+            self.try_init_aircraft_on_error(response)
+        elif key == 3: # Square key
+            response = self.th.aircraft.move(left_right=-S)  # set left velocity
+            self.try_init_aircraft_on_error(response)
+        elif key == 4: # Left 1
+            response = self.th.aircraft.move(up_down=S)  # set up velocity
+            self.try_init_aircraft_on_error(response)
+        elif key == 5: # Right 1 key
+            response = self.th.aircraft.move(yaw=S)  # set yaw right velocity
+            self.try_init_aircraft_on_error(response)
+        elif key == 6: # Left 2 key
+            response = self.th.aircraft.move(up_down=-S)  # set down velocity
+            self.try_init_aircraft_on_error(response)
+        elif key == 7: # Right 2 key
+            response = self.th.aircraft.move(yaw=-S)  # set yaw left velocity
+            self.try_init_aircraft_on_error(response)
+        elif key == 10: # left steer button
+            response = self.th.aircraft.stream_video() # start streming video
+            self.try_init_aircraft_on_error(response)
+        elif key == 11: # Right steer button
+            response = self.th.aircraft.capture_image() # take a snapshot
+            self.try_init_aircraft_on_error(response)
+        
+    def keyReleased(self, key):
+        """ Update velocities based on key pressed
+        Arguments:
+            key：an integer value identifying the joystick keyId or axis keyId that was pressed.
+        """
+        
+        if key == 0: # Triangle key
+            response = self.th.aircraft.move()  # set forward velocity
+            self.try_init_aircraft_on_error(response)
+        elif key == 1: # Circle key
+            response = self.th.aircraft.move()  # set right velocity
+            self.try_init_aircraft_on_error(response)
+        elif key == 2: # Times key
+            response = self.th.aircraft.move() # set backward velocity
+            self.try_init_aircraft_on_error(response)
+        elif key == 3: # Square key
+            response = self.th.aircraft.move()  # set left velocity
+            self.try_init_aircraft_on_error(response)
+        elif key == 4: # Left 1
+            response = self.th.aircraft.move()  # set up velocity
+            self.try_init_aircraft_on_error(response)
+        elif key == 5: # Right 1 key
+            response = self.th.aircraft.move()  # set yaw right velocity
+            self.try_init_aircraft_on_error(response)
+        elif key == 6: # Left 2 key
+            response = self.th.aircraft.move()  # set down velocity
+            self.try_init_aircraft_on_error(response)
+        elif key == 7: # Right 2 key
+            response = self.th.aircraft.move()  # set yaw left velocity
+            self.try_init_aircraft_on_error(response)
+        elif key == 8:  # select key
+            response = self.th.aircraft.initite_land()
+            self.try_init_aircraft_on_error(response)
+        elif key == 9:  # start key
+            response = self.th.aircraft.initite_takeoff()
+            self.try_init_aircraft_on_error(response)
+     
+    def try_init_aircraft_on_error(self, response):
+        """ Try to reinitialize the aircraft object if it failed to respond to command.
+            This usually happens when the aircraft crashes physically but remains on.
+        """
+        if response == 'error':
+            self.th.aircraft = Aircraft()
+    
     @Slot()
     def kill_thread(self):
         print("Finishing...")
@@ -541,29 +667,6 @@ class MainWindow(QMainWindow):
         self.label.setStyleSheet(f"qproperty-alignment: {int(QtCore.Qt.AlignCenter)};")
 
     @Slot()
-    def connect_pad(self):
-        """
-        This method handles connecting the pad
-        if the connection is successful exec the pad_connection_success dialog
-        and set the pad_button_icon to pad_icon_green
-        else
-        show the pad_connection_failed dialog and set the pad_button_icon to pad_icon_gray (optional)
-        """
-        self.pad_connection_success = CustomDialog(
-            title="Pad connection", content="Pad connection success"
-        )
-        self.pad_connection_failed = CustomDialog(
-            title="Pad connection", content="Pad connection failed"
-        )
-        # try connecting to the pad
-        # if it succeeeds show
-        # self.pad_connection_success.exec()
-        # self.connect_pad_button.setIcon(self.pad_icon_gray)
-        self.connect_pad_button.setIcon(self.pad_icon_green)
-        # else show
-        self.pad_connection_success.exec()
-
-    @Slot()
     def connect_drone(self):
         """
         This method handles connecting the drone
@@ -578,43 +681,17 @@ class MainWindow(QMainWindow):
         self.drone_connection_failed = CustomDialog(
             title="Error", content="drone connection failed"
         )
+
         # try connecting to the pad
         # if it succeeeds show
-        self.connect_drone_button.setIcon(self.drone_icon_green)
-        self.drone_connection_success.exec()
-        # else show
-        # self.drone_connection_failed.exec()
-
-    @Slot()
-    def start_stop_drone(self):
-        """
-        This method starts and stops the drone
-        you can on and off the drone frome here
-        """
-        self.drone_not_connected = CustomDialog(
-            title="Error",
-            content="Drone is not connected. Please make sure you connect to the drone's wifi",
-        )
-        if self.isDroneConnected:
-            # start up drone
-            if self.isDroneOn:
-                # stop the drone
-                self.isDroneOn = True
-                # set start stop button text to on
-                self.start_stop_button.setText("ON")
-                # drone start should be called here
-                # this method only connects to the drone camera feed
-                self.start()
-            else:
-                # start the drone
-                self.isDroneOn = False
-                # set start stop button text to off
-                self.start_stop_button.setText("OFF")
-                # call the method to stop the done here
-                # this method only disconnects the drone camera feed
-                self.setNoWifi()
-        else:
-            self.drone_not_connected.exec()
+        try:
+            self.th.aircraft.connect()
+            self.connect_drone_button.setIcon(self.drone_icon_green)
+            self.start_stop_button.setText("CONNECTED")
+            self.drone_connection_success.exec()
+        except:
+            self.start_stop_button.setText("DISCONNECTED")
+            self.drone_connection_failed.exec()
 
     @Slot()
     def predict_start_stop(self):
@@ -625,7 +702,7 @@ class MainWindow(QMainWindow):
             title="Error",
             content="Drone is not connected. Please make sure you connect to the drone's wifi",
         )
-        if self.isDroneConnected:
+        if self.th.aircraft.is_connected: #.isDroneConnected:
             # start predictions
             if self.isPredict:
                 # stop predictions

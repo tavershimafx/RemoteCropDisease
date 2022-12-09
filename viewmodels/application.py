@@ -7,7 +7,7 @@ from PyQt5.QtCore import QTimer, Qt
 from PyQt5 import QtGui
 import cv2 # import Opencv module
 import pygame
-sys.path.insert(0, r'C:\Users\Tavershima\source\repos\RemoteCropDisease\src\UI')
+sys.path.insert(0, r'C:\Users\Tavershima\source\repos\RemoteCropDisease\UI')
 from ui_main_window import Ui_Form
 from aircraft import Aircraft
 
