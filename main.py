@@ -14,9 +14,9 @@ from PySide6.QtGui import QAction, QImage, QKeySequence, QPixmap, QIcon, QColor
 from PySide6 import QtWidgets, QtSvg, QtGui
 from widgets import CustomDialog
 import pandas as pd
+from pathlib import Path
+from datetime import datetime
 from constants import CLASSES
-
-# from src.UI import ui_main_window
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -57,6 +57,18 @@ INPUT_DIM = (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE)
 
 
 def crop_and_resize(img, x, y, w, h):
+    """
+    This method crops the image at the cordinates given and resizes it to 224,224 which is the dimension the plant disease ai model accepts
+    Args:
+        img (_nparray_): image array
+        x (_int_): x cordinate of the top corner
+        y (_int_): y cordingate of the top corner
+        w (_int_): width of the image
+        h (_int_): height of the image
+
+    Returns:
+        _nparray_: resized image array
+    """
     cropped_image = img[y : y + h, x : x + w]
     # resize the image to fit the model input shape
     resized_cropped_image = cv2.resize(
@@ -69,6 +81,15 @@ def crop_and_resize(img, x, y, w, h):
 
 
 def tflite_predict(input_model, data):
+    """
+
+    Args:
+        input_model (_kerasmodel_): _this is the loaded input model_
+        data (_nparray_): _this is the input image of shape 1,224,244,3_
+
+    Returns:
+        _nparray_: _this is the prediction of the network of shape 1,38 which contains the probability for all the 38 classes _
+    """
     input_details = input_model.get_input_details()
     # print(input_details)
     output_details = input_model.get_output_details()
@@ -79,6 +100,15 @@ def tflite_predict(input_model, data):
 
 
 def detect_leaf(img):
+    """
+    This method detects all the leaves in the image by dropping all non green colors and creating a mask on the green objects
+    Args:
+        img (_nparray_): _raw image from the camera_
+
+    Returns:
+        _nparray_: _mask with non green pixels set to 0,(black) and green pixels set to 255 _
+        _nparray_: _image with non green pixel set to 0 and green pixel left the way the are(this image would be given to the plant diesase detection ai/neural network)_
+    """
     lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
     # store the a-channel
     a_channel = lab[:, :, 1]
@@ -106,13 +136,6 @@ class Thread(QThread):
         # list of the predcitions gotten from the frames
         self.predictions = []
 
-        # initialize the aircraft which we will be communicating to
-        self.aircraft = Aircraft()
-
-    def set_file(self, fname):
-        # The data comes with the 'opencv-python' module
-        self.trained_file = os.path.join(cv2.data.haarcascades, fname)
-
     def set_minArea(self, area):
         self.minArea = area
 
@@ -123,7 +146,12 @@ class Thread(QThread):
         self.isPredict = not self.isPredict
 
     def run(self):
-        #self.cap = cv2.VideoCapture(0)
+        """
+        This function extracts the frames one by one
+        from the self.cap attribute and process them
+        detecting and drawing bounding boxes on the frames
+        and emiting each frame to the MainWindow
+        """
         while self.status:
             # substitute this for the drone camera feed
             # ret, frame = self.cap.read()
@@ -139,8 +167,6 @@ class Thread(QThread):
             # find contours on the image
             ret, thresh = cv2.threshold(mask, 127, 255, 0)
             contours, hierarchy = cv2.findContours(thresh, 1, 2)
-            roi_list = []
-            resized_cropped_images = []
             if self.isPredict:
                 for c in contours:
                     prediction_dict = {}
@@ -151,12 +177,6 @@ class Thread(QThread):
                     area = cv2.contourArea(c)
                     if area > self.minArea:
                         resized_cropped_image = crop_and_resize(masked, x, y, w, h)
-                        # resized_cropped_images.append(resized_cropped_image)
-                        # roi_dict["x"] = x
-                        # roi_dict["y"] = y
-                        # roi_dict["w"] = w
-                        # roi_dict["h"] = h
-                        # roi_list.append(roi_dict)
                         preds = tflite_predict(tflite_model, resized_cropped_image)
 
                         predicted_value = preds[0][np.argmax(preds[0])]
@@ -165,8 +185,19 @@ class Thread(QThread):
                         prediction_dict["probability"] = predicted_value
                         self.predictions.extend(prediction_dict)
                         if predicted_value > self.minProbability:
+                            prob = round(predicted_value, 2)
+                            text = f"{leaf_type} {prob}"
                             # draw the rectangles on the frame
                             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                            cv2.putText(
+                                frame,
+                                text,
+                                (x + (w // 2) - 10, y + (h // 2) - 10),
+                                cv2.FONT_HERSHEY_COMPLEX,
+                                0.7,
+                                (0, 255, 0),
+                                1,
+                            )
                             self.prediction_dict.emit(prediction_dict)
             # Reading the image in RGB to display it
             color_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -191,11 +222,13 @@ class MainWindow(QMainWindow):
         # Drone control variables
         self.isStart = False
         self.isPredict = False
-        #self.isDroneConnected = True
-        #self.isPadConnected = False
-        #self.isDroneOn = False
-
         
+        self.minArea = 500
+        self.minProbability = 0.8
+        # holds the names of all the leafs predicted to be exported to csv
+        self.leafs = []
+        # holds the probabilities of the predictions to be exported to csv
+        self.probabilities = []
         
         # initialize a default. Its uncertain if any joystick is available so we assign None
         self.joystick = None
@@ -233,36 +266,32 @@ class MainWindow(QMainWindow):
 
         top_slider_layout = QHBoxLayout()
         bottom_slider_layout = QHBoxLayout()
-
-        # set default values for area and threshold
-        self.area = 0
-        self.threshold = 0
-
+        # this is the slider that controls the area value
         self.areaSlider = QSlider(orientation=Qt.Orientation.Horizontal)
+        # this is the threshold slider that controls the minimum probability to be considered by the network
         self.thresholdSlider = QSlider(orientation=Qt.Orientation.Horizontal)
-        self.areaSlider.setMinimum(0)
-        self.areaSlider.setMaximum(100)
-        self.areaSlider.setTickInterval(1)
-        self.thresholdSlider.setMinimum(500)
-        self.thresholdSlider.setMaximum(1000)
-        self.thresholdSlider.setTickInterval(50)
-
-        # for xml_file in os.listdir(cv2.data.haarcascades):
-        #     if xml_file.endswith(".xml"):
-        #         self.combobox.addItem(xml_file)
+        self.areaSlider.setMinimum(100)
+        self.areaSlider.setMaximum(1000)
+        self.areaSlider.setTickInterval(50)
+        self.thresholdSlider.setMinimum(0)
+        self.thresholdSlider.setMaximum(100)
+        self.thresholdSlider.setTickInterval(10)
 
         top_slider_layout.addWidget(QLabel("Area"), 5)
-        self.areaLabel = QLabel("0")
-        self.areaMinLabel = QLabel("         0")
-        self.areaMaxLabel = QLabel("1")
+        self.areaLabel = QLabel(f"{self.minArea}")
+        self.areaMinLabel = QLabel("         100")
+        self.areaMaxLabel = QLabel("1000")
         top_slider_layout.addWidget(self.areaLabel, 2)
         top_slider_layout.addWidget(self.areaMinLabel, 5)
         top_slider_layout.addWidget(self.areaSlider, 83)
         top_slider_layout.addWidget(self.areaMaxLabel, 5)
 
-        self.thresholdLabel = QLabel("1000")
-        self.thresholdMinLabel = QLabel("         500")
-        self.thresholdMaxLabel = QLabel("1000")
+        self.thresholdLabel = QLabel(f"{self.minProbability}")
+        self.thresholdMinLabel = QLabel("         0")
+        self.thresholdMaxLabel = QLabel("1")
+
+        self.areaSlider.setValue(self.area)
+        self.thresholdSlider.setValue(self.minProbability)
         bottom_slider_layout.addWidget(QLabel("Threshold"), 2)
         bottom_slider_layout.addWidget(self.thresholdLabel, 2)
         bottom_slider_layout.addWidget(self.thresholdMinLabel, 2)
@@ -346,14 +375,6 @@ class MainWindow(QMainWindow):
         self.velocity_altitude_group.setLayout(velocity_altitude_group_layout)
         self.velocity_altitude_group.setFixedHeight(150)
 
-        # box responsible for displaying the altitude of the drone
-        # self.altitude_group = QGroupBox("Altitude")
-        # altitude_group_layout = QVBoxLayout()
-        # self.altitude_label = QLabel("0cm")
-        # altitude_group_layout.addWidget(self.altitude_label)
-        # self.altitude_group.setLayout(altitude_group_layout)
-        # self.altitude_group.setFixedHeight(150)
-
         self.predictions_group = QGroupBox("Top Predictions")
         self.export_to_csv_button = QPushButton("Export to CSV")
         self.csv_btn_layout = QHBoxLayout()
@@ -361,44 +382,9 @@ class MainWindow(QMainWindow):
         self.csv_btn_layout.addStretch()
         self.predictions_group_layout = QVBoxLayout()
         self.predictions_group_layout.addLayout(self.csv_btn_layout)
-        # predictions = [
-        #     {"leaf": "apple", "probability": "90%"},
-        #     {"leaf": "corn", "probability": "70%"},
-        #     {"leaf": "tomato", "probability": "80%"},
-        #     {"leaf": "soyabeans healthy", "probability": "90%"},
-        #     {"leaf": "strawberry leaf scorch", "probability": "60%"},
-        #     {"leaf": "peach healthy", "probability": "80%"},
-        #     {"leaf": "Blue berry", "probability": "99%"},
-        #     {"leaf": "Raspberry healthy", "probability": "88%"},
-        #     {"leaf": "cherry healthy", "probability": "96%"},
-        #     {"leaf": "cherry healthy", "probability": "96%"},
-        #     {"leaf": "cherry healthy", "probability": "96%"},
-        #     {"leaf": "cherry healthy", "probability": "96%"},
-        #     {"leaf": "cherry healthy", "probability": "96%"},
-        #     {"leaf": "cherry healthy", "probability": "96%"},
-        #     {"leaf": "cherry healthy", "probability": "96%"},
-        #     {"leaf": "cherry healthy", "probability": "96%"},
-        # ]
         self.scroll = QScrollArea(self)
         self.scroll.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         self.predictions_layout = QVBoxLayout()
-        # for prediction_dict in predictions:
-        #     leaf = prediction_dict["leaf"]
-        #     probability = prediction_dict["probability"]
-        #     label_layout = QHBoxLayout()
-        #     label_leaf = QLabel(f"{leaf}")
-        #     label_probability = QLabel(f"{probability}")
-        #     label_probability.setStyleSheet("color:green")
-        #     label_layout.addWidget(label_leaf)
-        #     label_layout.addStretch()
-        #     label_layout.addWidget(label_probability)
-        #     self.predictions_layout.addLayout(label_layout)
-        # widget = QWidget()
-        # widget.setLayout(self.predictions_layout)
-        # self.scroll.setWidget(widget)
-        # # scroll.setWidgetResizable(True)
-        # # scroll.setFixedHeight(300)
-        # self.predictions_group_layout.addWidget(self.scroll)
         self.predictions_group_layout.addStretch()
         self.predictions_group.setLayout(self.predictions_group_layout)
         self.predictions_group.setFixedHeight(410)
@@ -436,7 +422,11 @@ class MainWindow(QMainWindow):
         self.connect_drone_button.clicked.connect(self.connect_drone)
         #self.start_stop_button.clicked.connect(self.start_stop_drone)
         self.predict_button.clicked.connect(self.predict_start_stop)
+        self.export_to_csv_button.clicked.connect(self.export_to_csv)
+        self.thresholdSlider.valueChanged.connect(self.thresholdChange)
+        self.areaSlider.valueChanged.connect(self.areaChange)
         self.setNoWifi()
+
         self.start()
 
         # create a timer
@@ -444,6 +434,7 @@ class MainWindow(QMainWindow):
         # set timer timeout callback function
         self.timer.timeout.connect(self.joystick_handler)
         self.timer.start(20)
+
         # Connections
         # self.button1.clicked.connect(self.start)
         # self.button2.clicked.connect(self.kill_thread)
@@ -587,13 +578,23 @@ class MainWindow(QMainWindow):
 
     @Slot(dict)
     def updatePredictionList(self, prediction_dict):
+        """
+
+        Args:
+            prediction_dict (_type_): _description_
+        This method connects to the predictions signals emmitted by the thread
+        and updates the Predictions group box with all the predictions by the network
+        """
         print(f"This is the prediction dictionary {prediction_dict}")
         leaf = prediction_dict["leaf"]
         probability = prediction_dict["probability"]
+        probability = round(probability, 2)
         label_layout = QHBoxLayout()
         label_leaf = QLabel(f"{leaf}")
         label_probability = QLabel(f"{probability}")
         label_probability.setStyleSheet("color:green")
+        self.leafs.append(leaf)
+        self.probabilities.append(probability)
         label_layout.addWidget(label_leaf)
         label_layout.addStretch()
         label_layout.addWidget(label_probability)
@@ -606,35 +607,74 @@ class MainWindow(QMainWindow):
         self.predictions_group_layout.addWidget(self.scroll)
         self.predictions_group_layout.addStretch()
 
+    @Slot()
+    def export_to_csv(self):
+        """
+        This method exports the
+        """
+        if len(self.probabilities) != 0 and len(self.leafs) != 0:
+            # data
+            data = {"leaf": self.leafs, "probability": self.probabilities}
+            df = pd.DataFrame(data)
+            # desktop path on unix
+            # desktop = os.path.join(os.path.join(os.path.expanduser('~')), 'Desktop')
+            # desktop path on windows
+            # desktop = os.path.join(os.path.join(os.environ["USERPROFILE"]), "Desktop")
+            desktop = os.path.expanduser("~/Desktop")
+            # get the current date time
+            current_dateTime = datetime.now()
+            filepath = Path(
+                f"{desktop}/leaf Disease Detection/predictions/result{current_dateTime}.csv"
+            )
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+            df.to_csv(filepath)
+
+    @Slot()
+    def areaChange(self):
+        """
+        This method handles the changes to the areavalue when the area slider is moved
+        """
+        # area is a value between 500 and 1000
+        # get the value
+        self.minArea = self.areaSlider.value()
+        # set the value on the label text
+        self.areaLabel.setText(f"{self.minArea}")
+        # set change the area value on the predicton thread
+        self.th.set_minArea(self.minArea)
+
+    @Slot()
+    def thresholdChange(self):
+        """
+        This method handles changes to the minimum porbability value when the threshold slider is moved
+        """
+        # threshold is a value between 1 and 100
+        # get the value from the threshold slider
+        threshold = self.thresholdSlider.value()
+        # scale the value by dividing it by 100
+        threshold = threshold / 100
+        self.minProbability = threshold
+        # set the value on the threshold label text
+        self.thresholdLabel.setText(f"{self.minProbability }")
+        self.th.set_minProbability(f"{self.minProbability }")
+
     def setNoWifi(self):
+        """
+        This method sets The wifi icon when the drone is not connected
+        """
         pixmap = QtGui.QPixmap("resources/images/nowifi.jpeg")
         self.label.setPixmap(pixmap)
         # self.setStyleSheet("text-align:center")
         self.label.setStyleSheet(f"qproperty-alignment: {int(QtCore.Qt.AlignCenter)};")
 
     @Slot()
-    def change_drone_icon_color(self):
-
-        pass
-
-    # @Slot()
-    # def connect_pad(self):
-    #     self.pad_connection_success = CustomDialog(
-    #         title="Pad connection", content="Pad connection success"
-    #     )
-    #     self.pad_connection_failed = CustomDialog(
-    #         title="Pad connection", content="Pad connection failed"
-    #     )
-    #     # try connecting to the pad
-    #     # if it succeeeds show
-    #     # self.pad_connection_success.exec()
-    #     # self.connect_pad_button.setIcon(self.pad_icon_gray)
-    #     self.connect_pad_button.setIcon(self.pad_icon_green)
-    #     # else show
-    #     self.pad_connection_success.exec()
-
-    @Slot()
     def connect_drone(self):
+        """
+        This method handles connecting the drone
+        if the connection is successful exec the drone_connection_success dialog
+        and set the drone_button_icon to drone_icon_green
+        else
+        show the drone_connection_failed dialog and set the drone_button_icon to drone_icon_gray (optional)
+        """
         self.drone_connection_success = CustomDialog(
             title="Success", content="drone connection success"
         )
@@ -653,34 +693,11 @@ class MainWindow(QMainWindow):
             self.start_stop_button.setText("DISCONNECTED")
             self.drone_connection_failed.exec()
 
-
-    # @Slot()
-    # def start_stop_drone(self):
-    #     self.drone_not_connected = CustomDialog(
-    #         title="Error",
-    #         content="Drone is not connected. Please make sure you connect to the drone's wifi",
-    #     )
-    #     if not self.th.aircraft.is_connected: #.isDroneConnected:
-    #         self.th.aircraft.connect()
-    #         self.start_stop_button.setText("CONNECTED")
-    #         #start up drone
-    #         if self.isDroneOn:
-    #             # stop the drone
-    #             self.isDroneOn = False
-    #             # set start stop button text to on
-    #             self.start_stop_button.setText("ON")
-    #         else:
-    #             # start the drone
-    #             self.isDroneOn = True
-    #             # set start stop button text to off
-    #             self.start_stop_button.setText("OFF")
-    #         print(self.start_stop_button.text())
-    #     else:
-    #         self.drone_not_connected.exec()
-    #         self.start_stop_button.setText("DISCONNECTED")
-
     @Slot()
     def predict_start_stop(self):
+        """
+        This method starts or stops the predictions
+        """
         self.drone_not_connected = CustomDialog(
             title="Error",
             content="Drone is not connected. Please make sure you connect to the drone's wifi",
@@ -704,7 +721,7 @@ class MainWindow(QMainWindow):
             self.drone_icon_color = QColor(255, 0, 0)
             # self.connect_drone_button.setIcon(self.drone_icon_gray)
 
-    # method to set the colored version of the icon
+    # method to set the colored version of the connect drone icon
     def drone_icon_colored(self, color):
 
         # Copy the image
@@ -719,6 +736,7 @@ class MainWindow(QMainWindow):
 
         return QIcon(QPixmap.fromImage(new_image))
 
+    # method to set the colored version of the connect pad icon
     def pad_icon_colored(self, color):
 
         # Copy the image
