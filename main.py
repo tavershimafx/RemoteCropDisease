@@ -35,25 +35,42 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QScrollArea,
 )
-
+from detection_utils import *
 from viewmodels.aircraft import Aircraft
 import pygame
+
 # qapp = QtWidgets.qApp
 
 # Speed of the drone
 S = 60
 
-"""This example uses the video from a  webcam to apply pattern
-detection from the OpenCV module. e.g.: face, eyes, body, etc."""
+
 # load the model
 tflite_model = tf.lite.Interpreter(model_path="resources/plant_diseas_model.tflite")
 
 # tflite_model.resize_tensor_input(0, [-1, 224, 224, 3])
 tflite_model.allocate_tensors()
 
-
+TFLITE_MODEL_PATH = "RemoteCropDisease/resources/cropdisease.tflite"
 MODEL_INPUT_SIZE = 224
 INPUT_DIM = (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE)
+
+
+def efficient_lite(img, detection_threshold):
+    # Load the TFLite model
+    options = ObjectDetectorOptions(
+        num_threads=4,
+        score_threshold=detection_threshold,
+    )
+    detector = ObjectDetector(model_path=TFLITE_MODEL_PATH, options=options)
+
+    # Run object detection estimation using the model.
+    detections = detector.detect(img)
+
+    # Draw keypoints and edges on input image
+    image_np, predictions = visualize(img, detections)
+
+    return image_np, predictions
 
 
 def crop_and_resize(img, x, y, w, h):
@@ -128,7 +145,7 @@ class Thread(QThread):
         QThread.__init__(self, parent)
         self.trained_file = None
         self.status = True
-        
+
         self.isPredict = False
         self.minArea = 500
         # if the model is not minProbability sure about a prediction it shouldn't return
@@ -158,7 +175,7 @@ class Thread(QThread):
         while self.status:
             # substitute this for the drone camera feed
             # ret, frame = self.cap.read()
-            frame_read = self.aircraft.get_frame() # get a frame from the aircraft
+            frame_read = self.aircraft.get_frame()  # get a frame from the aircraft
             if frame_read == None:
                 continue
 
@@ -170,46 +187,50 @@ class Thread(QThread):
 
             # copy the frame to avoid making changes to the orignal frames
             imgContour = frame.copy()
+            img_detections, predictions = efficient_lite(frame, self.minProbability)
+            for prediction in predictions:
+                self.prediction_dict.emit(prediction)
             # the masked image is the original image without the non green parts
-            masked, mask = detect_leaf(imgContour)
-            # find contours on the image
-            ret, thresh = cv2.threshold(mask, 127, 255, 0)
-            contours, hierarchy = cv2.findContours(thresh, 1, 2)
-            if self.isPredict:
-                for c in contours:
-                    prediction_dict = {}
-                    roi_dict = {}
-                    peri = cv2.arcLength(c, True)
-                    approx = cv2.approxPolyDP(c, 0.01 * peri, True)
-                    x, y, w, h = cv2.boundingRect(c)
-                    area = cv2.contourArea(c)
-                    if area > self.minArea:
-                        resized_cropped_image = crop_and_resize(masked, x, y, w, h)
-                        preds = tflite_predict(tflite_model, resized_cropped_image)
+            # masked, mask = detect_leaf(imgContour)
+            # # find contours on the image
+            # ret, thresh = cv2.threshold(mask, 127, 255, 0)
+            # contours, hierarchy = cv2.findContours(thresh, 1, 2)
+            # if self.isPredict:
+            #     for c in contours:
+            #         prediction_dict = {}
+            #         roi_dict = {}
+            #         peri = cv2.arcLength(c, True)
+            #         approx = cv2.approxPolyDP(c, 0.01 * peri, True)
+            #         x, y, w, h = cv2.boundingRect(c)
+            #         area = cv2.contourArea(c)
+            #         if area > self.minArea:
+            #             resized_cropped_image = crop_and_resize(masked, x, y, w, h)
+            #             preds = tflite_predict(tflite_model, resized_cropped_image)
 
-                        predicted_value = preds[0][np.argmax(preds[0])]
-                        leaf_type = CLASSES[np.argmax(preds[0])]
-                        prediction_dict["leaf"] = leaf_type
-                        prediction_dict["probability"] = predicted_value
-                        self.predictions.extend(prediction_dict)
-                        if predicted_value > self.minProbability:
-                            prob = round(predicted_value, 2)
-                            text = f"{leaf_type} {prob}"
-                            # draw the rectangles on the frame
-                            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                            cv2.putText(
-                                frame,
-                                text,
-                                (x + (w // 2) - 10, y + (h // 2) - 10),
-                                cv2.FONT_HERSHEY_COMPLEX,
-                                0.7,
-                                (0, 255, 0),
-                                1,
-                            )
-                            self.prediction_dict.emit(prediction_dict)
+            #             predicted_value = preds[0][np.argmax(preds[0])]
+            #             leaf_type = CLASSES[np.argmax(preds[0])]
+            #             prediction_dict["leaf"] = leaf_type
+            #             prediction_dict["probability"] = predicted_value
+            #             self.predictions.extend(prediction_dict)
+            #             if predicted_value > self.minProbability:
+            #                 prob = round(predicted_value, 2)
+            #                 text = f"{leaf_type} {prob}"
+            #                 # draw the rectangles on the frame
+            #                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            #                 cv2.putText(
+            #                     frame,
+            #                     text,
+            #                     (x + (w // 2) - 10, y + (h // 2) - 10),
+            #                     cv2.FONT_HERSHEY_COMPLEX,
+            #                     0.7,
+            #                     (0, 255, 0),
+            #                     1,
+            #                 )
+            #                 self.prediction_dict.emit(prediction_dict)
             # Reading the image in RGB to display it
-            color_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
+            # 🥸 AKO JOGODO abeg help me comment this line, try the next one make i see wetin go happen
+            color_frame = cv2.cvtColor(img_detections, cv2.COLOR_BGR2RGB)
+            # color_frame = img_detections
             # Creating and scaling QImage
             h, w, ch = color_frame.shape
             img = QImage(color_frame.data, w, h, ch * w, QImage.Format_RGB888)
@@ -230,17 +251,17 @@ class MainWindow(QMainWindow):
         # Drone control variables
         self.isStart = False
         self.isPredict = False
-        
+
         self.minArea = 500
         self.minProbability = 0.8
         # holds the names of all the leafs predicted to be exported to csv
         self.leafs = []
         # holds the probabilities of the predictions to be exported to csv
         self.probabilities = []
-        
+
         # initialize a default. Its uncertain if any joystick is available so we assign None
         self.joystick = None
-        pygame.init() # Init pygame to enable joystick and media objects
+        pygame.init()  # Init pygame to enable joystick and media objects
 
         # Main menu bar
         self.menu = self.menuBar()
@@ -425,10 +446,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(widget)
         # self.start()
 
-        #self.connect_pad_button.clicked.connect(self.connect_pad) # the pad is detected automatically now
-                                                                    #no need for manual connection again
+        # self.connect_pad_button.clicked.connect(self.connect_pad) # the pad is detected automatically now
+        # no need for manual connection again
         self.connect_drone_button.clicked.connect(self.connect_drone)
-        #self.start_stop_button.clicked.connect(self.start_stop_drone)
+        # self.start_stop_button.clicked.connect(self.start_stop_drone)
         self.predict_button.clicked.connect(self.predict_start_stop)
         self.export_to_csv_button.clicked.connect(self.export_to_csv)
         self.thresholdSlider.valueChanged.connect(self.thresholdChange)
@@ -449,7 +470,7 @@ class MainWindow(QMainWindow):
         # self.button2.clicked.connect(self.kill_thread)
         # self.connect_pad_button.setEnabled(False)
         # self.combobox.currentTextChanged.connect(self.set_model)
-   
+
     @Slot()
     def set_model(self, text):
         self.th.set_file(text)
@@ -472,13 +493,17 @@ class MainWindow(QMainWindow):
                 # This event will be generated when the program starts for any
                 # joystick, automatically detecting it without needing to create it manually.
                 self.joystick = pygame.joystick.Joystick(event.device_index)
-                self.connect_pad_button.setIcon(self.pad_icon_green) # make the pad icon green to signify active
+                self.connect_pad_button.setIcon(
+                    self.pad_icon_green
+                )  # make the pad icon green to signify active
             elif event.type == pygame.JOYDEVICEREMOVED:
                 self.joystick = None
-                self.connect_pad_button.setIcon(self.pad_icon_gray) # make the pad icon grey to signify inactive
+                self.connect_pad_button.setIcon(
+                    self.pad_icon_gray
+                )  # make the pad icon grey to signify inactive
 
     def keyPressed(self, key):
-        """ Update velocities based on key pressed
+        """Update velocities based on key pressed
         Arguments:
             key：an integer value identifying the joystick keyId or axis keyId that was pressed.
         """
@@ -486,7 +511,7 @@ class MainWindow(QMainWindow):
         if not self.th.aircraft.initite_takeoff():
             return
 
-        if key == 0: # Triangle key
+        if key == 0:  # Triangle key
             response = self.th.aircraft.move(forward_back=S)  # set forward velocity
             
         elif key == 1: # Circle key
@@ -518,12 +543,12 @@ class MainWindow(QMainWindow):
             
         
     def keyReleased(self, key):
-        """ Update velocities based on key pressed
+        """Update velocities based on key pressed
         Arguments:
             key：an integer value identifying the joystick keyId or axis keyId that was pressed.
         """
-        
-        if key == 0: # Triangle key
+
+        if key == 0:  # Triangle key
             response = self.th.aircraft.move()  # set forward velocity
             
         elif key == 1: # Circle key
@@ -555,12 +580,12 @@ class MainWindow(QMainWindow):
             
      
     def try_init_aircraft_on_error(self, response):
-        """ Try to reinitialize the aircraft object if it failed to respond to command.
-            This usually happens when the aircraft crashes physically but remains on.
+        """Try to reinitialize the aircraft object if it failed to respond to command.
+        This usually happens when the aircraft crashes physically but remains on.
         """
-        if response == 'error':
+        if response == "error":
             self.th.aircraft = Aircraft()
-    
+
     @Slot()
     def kill_thread(self):
         print("Finishing...")
@@ -711,7 +736,7 @@ class MainWindow(QMainWindow):
             title="Error",
             content="Drone is not connected. Please make sure you connect to the drone's wifi",
         )
-        if self.th.aircraft.is_connected: #.isDroneConnected:
+        if self.th.aircraft.is_connected:  # .isDroneConnected:
             # start predictions
             if self.isPredict:
                 # stop predictions
