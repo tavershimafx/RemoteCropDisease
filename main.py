@@ -70,6 +70,7 @@ def crop_and_resize(img, x, y, w, h):
         _nparray_: resized image array
     """
     cropped_image = img[y : y + h, x : x + w]
+    
     # resize the image to fit the model input shape
     resized_cropped_image = cv2.resize(
         cropped_image, INPUT_DIM, interpolation=cv2.INTER_AREA
@@ -162,6 +163,11 @@ class Thread(QThread):
                 continue
 
             frame = frame_read.frame
+
+            # this happens when we lost the video feed from the drone
+            if frame == None:
+                return
+
             # copy the frame to avoid making changes to the orignal frames
             imgContour = frame.copy()
             # the masked image is the original image without the non green parts
@@ -429,13 +435,14 @@ class MainWindow(QMainWindow):
         self.areaSlider.valueChanged.connect(self.areaChange)
         self.setNoWifi()
 
-        self.start()
 
         # create a timer
         self.timer = QTimer()
         # set timer timeout callback function
         self.timer.timeout.connect(self.joystick_handler)
         self.timer.start(20)
+        
+        self.start()
 
         # Connections
         # self.button1.clicked.connect(self.start)
@@ -455,8 +462,8 @@ class MainWindow(QMainWindow):
 
         for event in pygame.event.get():
             if event.type == pygame.USEREVENT + 1:
-                response = self.th.aircraft.update()
-                self.try_init_aircraft_on_error(response)
+                self.th.aircraft.update()
+                #
             elif event.type == pygame.JOYBUTTONDOWN:
                 self.keyPressed(event.button)
             elif event.type == pygame.JOYBUTTONUP:
@@ -481,34 +488,34 @@ class MainWindow(QMainWindow):
 
         if key == 0: # Triangle key
             response = self.th.aircraft.move(forward_back=S)  # set forward velocity
-            self.try_init_aircraft_on_error(response)
+            
         elif key == 1: # Circle key
             response = self.th.aircraft.move(left_right=S)  # set right velocity
-            self.try_init_aircraft_on_error(response)
+            
         elif key == 2: # Times key
             response = self.th.aircraft.move(forward_back=-S) # set backward velocity
-            self.try_init_aircraft_on_error(response)
+            
         elif key == 3: # Square key
             response = self.th.aircraft.move(left_right=-S)  # set left velocity
-            self.try_init_aircraft_on_error(response)
+            
         elif key == 4: # Left 1
             response = self.th.aircraft.move(up_down=S)  # set up velocity
-            self.try_init_aircraft_on_error(response)
+            
         elif key == 5: # Right 1 key
             response = self.th.aircraft.move(yaw=S)  # set yaw right velocity
-            self.try_init_aircraft_on_error(response)
+            
         elif key == 6: # Left 2 key
             response = self.th.aircraft.move(up_down=-S)  # set down velocity
-            self.try_init_aircraft_on_error(response)
+            
         elif key == 7: # Right 2 key
             response = self.th.aircraft.move(yaw=-S)  # set yaw left velocity
-            self.try_init_aircraft_on_error(response)
+            
         elif key == 10: # left steer button
             response = self.th.aircraft.stream_video() # start streming video
-            self.try_init_aircraft_on_error(response)
+            
         elif key == 11: # Right steer button
             response = self.th.aircraft.capture_image() # take a snapshot
-            self.try_init_aircraft_on_error(response)
+            
         
     def keyReleased(self, key):
         """ Update velocities based on key pressed
@@ -518,34 +525,34 @@ class MainWindow(QMainWindow):
         
         if key == 0: # Triangle key
             response = self.th.aircraft.move()  # set forward velocity
-            self.try_init_aircraft_on_error(response)
+            
         elif key == 1: # Circle key
             response = self.th.aircraft.move()  # set right velocity
-            self.try_init_aircraft_on_error(response)
+            
         elif key == 2: # Times key
             response = self.th.aircraft.move() # set backward velocity
-            self.try_init_aircraft_on_error(response)
+            
         elif key == 3: # Square key
             response = self.th.aircraft.move()  # set left velocity
-            self.try_init_aircraft_on_error(response)
+            
         elif key == 4: # Left 1
             response = self.th.aircraft.move()  # set up velocity
-            self.try_init_aircraft_on_error(response)
+            
         elif key == 5: # Right 1 key
             response = self.th.aircraft.move()  # set yaw right velocity
-            self.try_init_aircraft_on_error(response)
+            
         elif key == 6: # Left 2 key
             response = self.th.aircraft.move()  # set down velocity
-            self.try_init_aircraft_on_error(response)
+            
         elif key == 7: # Right 2 key
             response = self.th.aircraft.move()  # set yaw left velocity
-            self.try_init_aircraft_on_error(response)
+            
         elif key == 8:  # select key
             response = self.th.aircraft.initite_land()
-            self.try_init_aircraft_on_error(response)
+            
         elif key == 9:  # start key
             response = self.th.aircraft.initite_takeoff()
-            self.try_init_aircraft_on_error(response)
+            
      
     def try_init_aircraft_on_error(self, response):
         """ Try to reinitialize the aircraft object if it failed to respond to command.

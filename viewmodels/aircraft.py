@@ -101,29 +101,13 @@ class Aircraft(object):
         if self.is_connected and self.send_rc_control:
             self.tello.send_rc_control(left_right, forward_back, up_down, yaw)
 
-        def clamp100(x: int) -> int:
-            return max(-100, min(100, x))
-
-        cmd = 'rc {} {} {} {}'.format(
-            clamp100(self.left_right_velocity),
-            clamp100(self.back_velocity),
-            clamp100(self.up_down_velocity),
-            clamp100(self.yaw_velocity)
-        )
-
-        if self.is_connected and self.send_rc_control:
-            response = self.tello.send_command_with_return(cmd)
-            print("response from command:", response)
-            return response
-
     def update(self):
         """ 
         Update routine. Send velocities to Tello.
         """
-        self.move(self.back_velocity, self.left_right_velocity, self.up_down_velocity, self.yaw_velocity)
-        # if self.is_connected and self.send_rc_control:
-        #     self.tello.send_rc_control(self.left_right_velocity, self.back_velocity,
-        #         self.up_down_velocity, self.yaw_velocity)
+        if self.is_connected and self.send_rc_control:
+            self.tello.send_rc_control(self.left_right_velocity, self.back_velocity,
+                self.up_down_velocity, self.yaw_velocity)
 
     def capture_image(self):
         """
