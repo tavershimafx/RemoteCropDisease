@@ -330,7 +330,7 @@ plt.legend(
 ```
 
 These gives us the following result
-![data plot](RemoteCropDisease/resources/images/data_plot.png)
+![data plot](./resources/images/data_plot.png)
 
 > As we can see the images seem to be evenly distributed which means we have no problem
 
@@ -349,7 +349,7 @@ def show_batch(image_batch, label_batch):
 image_batch, label_batch = next(train_generator)
 show_batch(image_batch, label_batch)
 ```
-![images preview](RemoteCropDisease/resources/images/data_sample.png)
+![images preview](./resources/images/data_sample.png)
 
 ## About the model for leaves disease classification
 
@@ -359,7 +359,7 @@ called __mobilnetv2__ which is one of the small ones _since we have limited comp
 Here is a summary of the model architecture
 &nbsp;
 
-![mobilenetv2 architecture](RemoteCropDisease/resources/images/mobilnetv2.jpeg)
+![mobilenetv2 architecture](./resources/images/mobilnetv2.jpeg)
 
 > we modify the model by replacing its classification layer _which classifies over a thousand classes_ with ours which would classify the 38 classes above
 
@@ -403,7 +403,7 @@ During the inferencing we combine both the efficient_lite model _model for detec
 > although the efficient lite model also gives class prediction for the detected leaves it has a poor accuracy on class prediction, so we discard the class predictions and use its bounding box predictions to crop out leaves in the image and pass them to the moblilnetv2 model to get more accurate class predictions
 
 The following diagram summarizes the entire inferencing process
-![inferencing](RemoteCropDisease/resources/images/inferencing.jpg)
+![inferencing](./resources/images/inferencing.jpg)
 
 
 
