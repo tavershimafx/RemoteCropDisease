@@ -9,11 +9,45 @@ from tflite_support import metadata
 import cv2
 import tensorflow as tf
 import numpy as np
+from constants import CLASSES
 
 Interpreter = tf.lite.Interpreter
 load_delegate = tf.lite.experimental.load_delegate
+MODEL_INPUT_SIZE = 224
+INPUT_DIM = (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE)
 
 # pylint: enable=g-import-not-at-top
+def crop_and_resize(img, x, y, w, h):
+    cropped_image = img[y:h, x:w].copy()
+    # resize the image to fit the model input shape
+    resized_cropped_image = cv2.resize(
+        cropped_image, INPUT_DIM, interpolation=cv2.INTER_AREA
+    )
+    resized_cropped_image = np.expand_dims(resized_cropped_image, axis=0)
+    resized_cropped_image = resized_cropped_image.astype(np.float32)
+    resized_cropped_image = resized_cropped_image / 255
+    return resized_cropped_image
+
+
+def tflite_predict(input_model, data):
+    input_details = input_model.get_input_details()
+    # print(input_details)
+    output_details = input_model.get_output_details()
+    input_model.set_tensor(0, data)
+    input_model.invoke()
+    output_data = input_model.get_tensor(output_details[0]["index"])
+    predicted_value = output_data[0][np.argmax(output_data[0])]
+    leaf_type = CLASSES[np.argmax(output_data[0])]
+    return leaf_type, predicted_value
+
+
+# load the model
+tflite_model = tf.lite.Interpreter(
+    model_path="RemoteCropDisease/resources/plant_diseas_model.tflite", num_threads=1
+)
+
+# tflite_model.resize_tensor_input(0, [-1, 224, 224, 3])
+tflite_model.allocate_tensors()
 
 
 class ObjectDetectorOptions(NamedTuple):
@@ -334,3 +368,58 @@ def visualize(
         )
 
     return image, predictions
+
+
+def visualize_classnames_with_mobilenet(
+    image: np.ndarray,
+    detections: List[Detection],
+) -> np.ndarray:
+    """Draws bounding boxes on the input image and return it.
+    Args:
+      image: The input RGB image.
+      detections: The list of all "Detection" entities to be visualize.
+    Returns:
+      Image with bounding boxes.
+    """
+    predictions = []
+    for detection in detections:
+        prediction_dict = {}
+        x = detection.x
+        y = detection.y
+        w = detection.w
+        h = detection.h
+        resized_image = crop_and_resize(image, x, y, w, h)
+        label, score = tflite_predict(tflite_model, resized_image)
+        # Draw bounding_box
+        start_point = detection.bounding_box.left, detection.bounding_box.top
+        end_point = detection.bounding_box.right, detection.bounding_box.bottom
+        cv2.rectangle(image, start_point, end_point, _TEXT_COLOR, 3)
+
+        print(f"x{x} y{y} w{w} h{h}")
+
+        print(start_point)
+        # Draw label and score
+        category = detection.categories[0]
+        # class_name = category.label
+        # probability = round(category.score, 2)
+        class_name = label
+        probability = score
+        prediction_dict["leaf"] = class_name
+        prediction_dict["probability"] = probability
+        predictions.append(prediction_dict)
+        result_text = probability + " (" + str(probability) + ")"
+        text_location = (
+            _MARGIN + detection.bounding_box.left,
+            _MARGIN + _ROW_SIZE + detection.bounding_box.top,
+        )
+        cv2.putText(
+            image,
+            result_text,
+            text_location,
+            cv2.FONT_HERSHEY_PLAIN,
+            _FONT_SIZE,
+            _TEXT_COLOR,
+            _FONT_THICKNESS,
+        )
+
+    return image
