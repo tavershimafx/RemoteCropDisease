@@ -1,6 +1,7 @@
 from qt_material import apply_stylesheet
 import tensorflow as tf
 import numpy as np
+from numpy import ndarray
 import matplotlib.pyplot as plt
 from keras.models import Model
 import os
@@ -46,12 +47,12 @@ S = 60
 
 
 # load the model
-tflite_model = tf.lite.Interpreter(model_path="resources/plant_diseas_model.tflite")
+tflite_model = tf.lite.Interpreter(model_path="resources\cropdisease.tflite")
 
 # tflite_model.resize_tensor_input(0, [-1, 224, 224, 3])
 tflite_model.allocate_tensors()
 
-TFLITE_MODEL_PATH = "RemoteCropDisease/resources/cropdisease.tflite"
+TFLITE_MODEL_PATH = "resources/cropdisease.tflite"
 MODEL_INPUT_SIZE = 224
 INPUT_DIM = (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE)
 
@@ -59,7 +60,7 @@ INPUT_DIM = (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE)
 def efficient_lite(img, detection_threshold):
     # Load the TFLite model
     options = ObjectDetectorOptions(
-        num_threads=4,
+        num_threads=1,
         score_threshold=detection_threshold,
     )
     detector = ObjectDetector(model_path=TFLITE_MODEL_PATH, options=options)
@@ -150,7 +151,7 @@ class Thread(QThread):
         self.minArea = 500
         # if the model is not minProbability sure about a prediction it shouldn't return
         # or draw the prediction
-        self.minProbability = 0.8
+        self.minProbability = 0.6
         # list of the predcitions gotten from the frames
         self.predictions = []
 
@@ -160,7 +161,7 @@ class Thread(QThread):
         self.minArea = area
 
     def set_minProbability(self, probability):
-        self.minProbability = probability
+        self.minProbability = float(probability)
 
     def start_stop_predictions(self):
         self.isPredict = not self.isPredict
@@ -182,7 +183,7 @@ class Thread(QThread):
             frame = frame_read.frame
 
             # this happens when we lost the video feed from the drone
-            if frame == None:
+            if type(frame) is not ndarray:
                 return
 
             # copy the frame to avoid making changes to the orignal frames
@@ -246,14 +247,15 @@ class MainWindow(QMainWindow):
         super().__init__()
         # Title and dimensions
         self.setWindowTitle("Leaf Disease Detection")
-        # self.setGeometry(0, 0, 800, 500)
         self.setGeometry(0, 0, 800, 700)
+
         # Drone control variables
         self.isStart = False
         self.isPredict = False
 
         self.minArea = 500
-        self.minProbability = 0.8
+        self.minProbability = 0.6
+
         # holds the names of all the leafs predicted to be exported to csv
         self.leafs = []
         # holds the probabilities of the predictions to be exported to csv
@@ -338,8 +340,7 @@ class MainWindow(QMainWindow):
         self.connect_drone_button.setSizePolicy(
             QSizePolicy.Preferred, QSizePolicy.Expanding
         )
-        # self.drone_svg = QIcon(QIcon("resources/images/drone-svgrepo-com-black.svg"))
-
+        
         # Load the drone svg
         drone_svg_renderer = QtSvg.QSvgRenderer(
             "resources/images/drone-svgrepo-com-black.svg"
@@ -349,6 +350,7 @@ class MainWindow(QMainWindow):
         # Get QPainter that paints to the image
         drone_svg_painter = QtGui.QPainter(self.drone_svg)
         drone_svg_renderer.render(drone_svg_painter)
+
         # drone color
         self.drone_icon_color_green = QColor(0, 255, 0)
         self.drone_icon_color_gray = QColor(211, 211, 211)
@@ -384,8 +386,7 @@ class MainWindow(QMainWindow):
 
         bottom_layout = QVBoxLayout()
         bottom_layout.addWidget(self.group_model, 1)
-        # right_layout.addLayout(buttons_layout, 1)
-
+        
         # Right layout
         right_layout = QVBoxLayout()
 
@@ -444,12 +445,9 @@ class MainWindow(QMainWindow):
         widget = QWidget(self)
         widget.setLayout(layout)
         self.setCentralWidget(widget)
-        # self.start()
-
-        # self.connect_pad_button.clicked.connect(self.connect_pad) # the pad is detected automatically now
+        
         # no need for manual connection again
         self.connect_drone_button.clicked.connect(self.connect_drone)
-        # self.start_stop_button.clicked.connect(self.start_stop_drone)
         self.predict_button.clicked.connect(self.predict_start_stop)
         self.export_to_csv_button.clicked.connect(self.export_to_csv)
         self.thresholdSlider.valueChanged.connect(self.thresholdChange)
@@ -464,12 +462,6 @@ class MainWindow(QMainWindow):
         self.timer.start(20)
         
         self.start()
-
-        # Connections
-        # self.button1.clicked.connect(self.start)
-        # self.button2.clicked.connect(self.kill_thread)
-        # self.connect_pad_button.setEnabled(False)
-        # self.combobox.currentTextChanged.connect(self.set_model)
 
     @Slot()
     def set_model(self, text):
@@ -512,34 +504,25 @@ class MainWindow(QMainWindow):
             return
 
         if key == 0:  # Triangle key
-            response = self.th.aircraft.move(forward_back=S)  # set forward velocity
-            
+            self.th.aircraft.move(forward_back=S)  # set forward velocity
         elif key == 1: # Circle key
-            response = self.th.aircraft.move(left_right=S)  # set right velocity
-            
+            self.th.aircraft.move(left_right=S)  # set right velocity
         elif key == 2: # Times key
-            response = self.th.aircraft.move(forward_back=-S) # set backward velocity
-            
+            self.th.aircraft.move(forward_back=-S) # set backward velocity
         elif key == 3: # Square key
-            response = self.th.aircraft.move(left_right=-S)  # set left velocity
-            
+            self.th.aircraft.move(left_right=-S)  # set left velocity
         elif key == 4: # Left 1
-            response = self.th.aircraft.move(up_down=S)  # set up velocity
-            
+            self.th.aircraft.move(up_down=S)  # set up velocity
         elif key == 5: # Right 1 key
-            response = self.th.aircraft.move(yaw=S)  # set yaw right velocity
-            
+            self.th.aircraft.move(yaw=S)  # set yaw right velocity
         elif key == 6: # Left 2 key
-            response = self.th.aircraft.move(up_down=-S)  # set down velocity
-            
+            self.th.aircraft.move(up_down=-S)  # set down velocity
         elif key == 7: # Right 2 key
-            response = self.th.aircraft.move(yaw=-S)  # set yaw left velocity
-            
+            self.th.aircraft.move(yaw=-S)  # set yaw left velocity
         elif key == 10: # left steer button
-            response = self.th.aircraft.stream_video() # start streming video
-            
+            self.th.aircraft.stream_video() # start streming video
         elif key == 11: # Right steer button
-            response = self.th.aircraft.capture_image() # take a snapshot
+            self.th.aircraft.capture_image() # take a snapshot
             
         
     def keyReleased(self, key):
@@ -549,35 +532,25 @@ class MainWindow(QMainWindow):
         """
 
         if key == 0:  # Triangle key
-            response = self.th.aircraft.move()  # set forward velocity
-            
+            self.th.aircraft.move()  # set forward velocity
         elif key == 1: # Circle key
-            response = self.th.aircraft.move()  # set right velocity
-            
+            self.th.aircraft.move()  # set right velocity
         elif key == 2: # Times key
-            response = self.th.aircraft.move() # set backward velocity
-            
+            self.th.aircraft.move() # set backward velocity
         elif key == 3: # Square key
-            response = self.th.aircraft.move()  # set left velocity
-            
+            self.th.aircraft.move()  # set left velocity
         elif key == 4: # Left 1
-            response = self.th.aircraft.move()  # set up velocity
-            
+            self.th.aircraft.move()  # set up velocity
         elif key == 5: # Right 1 key
-            response = self.th.aircraft.move()  # set yaw right velocity
-            
+            self.th.aircraft.move()  # set yaw right velocity
         elif key == 6: # Left 2 key
-            response = self.th.aircraft.move()  # set down velocity
-            
+            self.th.aircraft.move()  # set down velocity
         elif key == 7: # Right 2 key
-            response = self.th.aircraft.move()  # set yaw left velocity
-            
+            self.th.aircraft.move()  # set yaw left velocity
         elif key == 8:  # select key
-            response = self.th.aircraft.initite_land()
-            
+            self.th.aircraft.initite_land()
         elif key == 9:  # start key
-            response = self.th.aircraft.initite_takeoff()
-            
+            self.th.aircraft.initite_takeoff()
      
     def try_init_aircraft_on_error(self, response):
         """Try to reinitialize the aircraft object if it failed to respond to command.
@@ -589,21 +562,17 @@ class MainWindow(QMainWindow):
     @Slot()
     def kill_thread(self):
         print("Finishing...")
-        # self.button2.setEnabled(False)
-        # self.button1.setEnabled(True)
         self.th.cap.release()
         cv2.destroyAllWindows()
         self.status = False
         self.th.terminate()
+
         # Give time for the thread to finish
         time.sleep(1)
 
     @Slot()
     def start(self):
         print("Starting...")
-        # self.button2.setEnabled(True)
-        # self.button1.setEnabled(False)
-        # self.th.set_file(self.combobox.currentText())
         self.th.start()
 
     @Slot(QImage)
@@ -753,7 +722,6 @@ class MainWindow(QMainWindow):
         else:
             self.drone_not_connected.exec()
             self.drone_icon_color = QColor(255, 0, 0)
-            # self.connect_drone_button.setIcon(self.drone_icon_gray)
 
     # method to set the colored version of the connect drone icon
     def drone_icon_colored(self, color):
