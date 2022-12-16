@@ -18,6 +18,7 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from constants import CLASSES
+
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -69,80 +70,82 @@ def efficient_lite(img, detection_threshold):
     detections = detector.detect(img)
 
     # Draw keypoints and edges on input image
-    image_np, predictions = visualize(img, detections)
+    # image_np, predictions = visualize(img, detections)
 
+    # Draw keypoints and edges on input image using classnames predicted by mobilent
+    image_np, predictions = visualize_classnames_with_mobilenet(img, detections)
     return image_np, predictions
 
 
-def crop_and_resize(img, x, y, w, h):
-    """
-    This method crops the image at the cordinates given and resizes it to 224,224 which is the dimension the plant disease ai model accepts
-    Args:
-        img (_nparray_): image array
-        x (_int_): x cordinate of the top corner
-        y (_int_): y cordingate of the top corner
-        w (_int_): width of the image
-        h (_int_): height of the image
+# def crop_and_resize(img, x, y, w, h):
+#     """
+#     This method crops the image at the cordinates given and resizes it to 224,224 which is the dimension the plant disease ai model accepts
+#     Args:
+#         img (_nparray_): image array
+#         x (_int_): x cordinate of the top corner
+#         y (_int_): y cordingate of the top corner
+#         w (_int_): width of the image
+#         h (_int_): height of the image
 
-    Returns:
-        _nparray_: resized image array
-    """
-    cropped_image = img[y : y + h, x : x + w]
-    
-    # resize the image to fit the model input shape
-    resized_cropped_image = cv2.resize(
-        cropped_image, INPUT_DIM, interpolation=cv2.INTER_AREA
-    )
-    resized_cropped_image = np.expand_dims(resized_cropped_image, axis=0)
-    resized_cropped_image = resized_cropped_image.astype(np.float32)
-    resized_cropped_image = resized_cropped_image / 255
-    return resized_cropped_image
+#     Returns:
+#         _nparray_: resized image array
+#     """
+#     cropped_image = img[y : y + h, x : x + w]
 
-
-def tflite_predict(input_model, data):
-    """
-
-    Args:
-        input_model (_kerasmodel_): _this is the loaded input model_
-        data (_nparray_): _this is the input image of shape 1,224,244,3_
-
-    Returns:
-        _nparray_: _this is the prediction of the network of shape 1,38 which contains the probability for all the 38 classes _
-    """
-    input_details = input_model.get_input_details()
-    # print(input_details)
-    output_details = input_model.get_output_details()
-    input_model.set_tensor(0, data)
-    input_model.invoke()
-    output_data = input_model.get_tensor(output_details[0]["index"])
-    return output_data
+#     # resize the image to fit the model input shape
+#     resized_cropped_image = cv2.resize(
+#         cropped_image, INPUT_DIM, interpolation=cv2.INTER_AREA
+#     )
+#     resized_cropped_image = np.expand_dims(resized_cropped_image, axis=0)
+#     resized_cropped_image = resized_cropped_image.astype(np.float32)
+#     resized_cropped_image = resized_cropped_image / 255
+#     return resized_cropped_image
 
 
-def detect_leaf(img):
-    """
-    This method detects all the leaves in the image by dropping all non green colors and creating a mask on the green objects
-    Args:
-        img (_nparray_): _raw image from the camera_
+# def tflite_predict(input_model, data):
+#     """
 
-    Returns:
-        _nparray_: _mask with non green pixels set to 0,(black) and green pixels set to 255 _
-        _nparray_: _image with non green pixel set to 0 and green pixel left the way the are(this image would be given to the plant diesase detection ai/neural network)_
-    """
-    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-    # store the a-channel
-    a_channel = lab[:, :, 1]
-    # Automate threshold using Otsu method
-    th = cv2.threshold(a_channel, 127, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
-    # Mask the result with the original image
-    masked = cv2.bitwise_and(img, img, mask=th)
-    return masked, th
+#     Args:
+#         input_model (_kerasmodel_): _this is the loaded input model_
+#         data (_nparray_): _this is the input image of shape 1,224,244,3_
+
+#     Returns:
+#         _nparray_: _this is the prediction of the network of shape 1,38 which contains the probability for all the 38 classes _
+#     """
+#     input_details = input_model.get_input_details()
+#     # print(input_details)
+#     output_details = input_model.get_output_details()
+#     input_model.set_tensor(0, data)
+#     input_model.invoke()
+#     output_data = input_model.get_tensor(output_details[0]["index"])
+#     return output_data
+
+
+# def detect_leaf(img):
+#     """
+#     This method detects all the leaves in the image by dropping all non green colors and creating a mask on the green objects
+#     Args:
+#         img (_nparray_): _raw image from the camera_
+
+#     Returns:
+#         _nparray_: _mask with non green pixels set to 0,(black) and green pixels set to 255 _
+#         _nparray_: _image with non green pixel set to 0 and green pixel left the way the are(this image would be given to the plant diesase detection ai/neural network)_
+#     """
+#     lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+#     # store the a-channel
+#     a_channel = lab[:, :, 1]
+#     # Automate threshold using Otsu method
+#     th = cv2.threshold(a_channel, 127, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+#     # Mask the result with the original image
+#     masked = cv2.bitwise_and(img, img, mask=th)
+#     return masked, th
 
 
 class Thread(QThread):
     updateFrame = Signal(QImage)
     prediction_dict = Signal(dict)
 
-    def __init__(self, parent=None):
+    def __init__(self, no_connection_image, parent=None):
         QThread.__init__(self, parent)
         self.trained_file = None
         self.status = True
@@ -156,6 +159,8 @@ class Thread(QThread):
         self.predictions = []
 
         self.aircraft = Aircraft()
+
+        self.no_connection_image = no_connection_image.toImage()
 
     def set_minArea(self, area):
         self.minArea = area
@@ -178,6 +183,8 @@ class Thread(QThread):
             # ret, frame = self.cap.read()
             frame_read = self.aircraft.get_frame()  # get a frame from the aircraft
             if frame_read == None:
+                # self.start_stop_predictions()
+                # self.updateFrame.emit(scaled_img)
                 continue
 
             frame = frame_read.frame
@@ -268,6 +275,7 @@ class MainWindow(QMainWindow):
         # Main menu bar
         self.menu = self.menuBar()
         self.menu_file = self.menu.addMenu("File")
+        self.pixmap = QtGui.QPixmap("resources/images/nowifi.jpeg")
         exit = QAction("Exit", self, triggered=app.quit)
         self.menu_file.addAction(exit)
 
@@ -285,7 +293,7 @@ class MainWindow(QMainWindow):
         self.label.setFixedSize(1070, 600)
 
         # Thread in charge of updating the image
-        self.th = Thread(self)
+        self.th = Thread(self, self.pixmap)
         self.th.finished.connect(self.close)
         self.th.updateFrame.connect(self.setImage)
         self.th.prediction_dict.connect(self.updatePredictionList)
@@ -340,7 +348,7 @@ class MainWindow(QMainWindow):
         self.connect_drone_button.setSizePolicy(
             QSizePolicy.Preferred, QSizePolicy.Expanding
         )
-        
+
         # Load the drone svg
         drone_svg_renderer = QtSvg.QSvgRenderer(
             "resources/images/drone-svgrepo-com-black.svg"
@@ -386,7 +394,7 @@ class MainWindow(QMainWindow):
 
         bottom_layout = QVBoxLayout()
         bottom_layout.addWidget(self.group_model, 1)
-        
+
         # Right layout
         right_layout = QVBoxLayout()
 
@@ -445,7 +453,7 @@ class MainWindow(QMainWindow):
         widget = QWidget(self)
         widget.setLayout(layout)
         self.setCentralWidget(widget)
-        
+
         # no need for manual connection again
         self.connect_drone_button.clicked.connect(self.connect_drone)
         self.predict_button.clicked.connect(self.predict_start_stop)
@@ -454,13 +462,12 @@ class MainWindow(QMainWindow):
         self.areaSlider.valueChanged.connect(self.areaChange)
         self.setNoWifi()
 
-
         # create a timer
         self.timer = QTimer()
         # set timer timeout callback function
         self.timer.timeout.connect(self.joystick_handler)
         self.timer.start(20)
-        
+
         self.start()
 
     @Slot()
@@ -505,26 +512,25 @@ class MainWindow(QMainWindow):
 
         if key == 0:  # Triangle key
             self.th.aircraft.move(forward_back=S)  # set forward velocity
-        elif key == 1: # Circle key
+        elif key == 1:  # Circle key
             self.th.aircraft.move(left_right=S)  # set right velocity
-        elif key == 2: # Times key
-            self.th.aircraft.move(forward_back=-S) # set backward velocity
-        elif key == 3: # Square key
+        elif key == 2:  # Times key
+            self.th.aircraft.move(forward_back=-S)  # set backward velocity
+        elif key == 3:  # Square key
             self.th.aircraft.move(left_right=-S)  # set left velocity
-        elif key == 4: # Left 1
+        elif key == 4:  # Left 1
             self.th.aircraft.move(up_down=S)  # set up velocity
-        elif key == 5: # Right 1 key
+        elif key == 5:  # Right 1 key
             self.th.aircraft.move(yaw=S)  # set yaw right velocity
-        elif key == 6: # Left 2 key
+        elif key == 6:  # Left 2 key
             self.th.aircraft.move(up_down=-S)  # set down velocity
-        elif key == 7: # Right 2 key
+        elif key == 7:  # Right 2 key
             self.th.aircraft.move(yaw=-S)  # set yaw left velocity
-        elif key == 10: # left steer button
-            self.th.aircraft.stream_video() # start streming video
-        elif key == 11: # Right steer button
-            self.th.aircraft.capture_image() # take a snapshot
-            
-        
+        elif key == 10:  # left steer button
+            self.th.aircraft.stream_video()  # start streming video
+        elif key == 11:  # Right steer button
+            self.th.aircraft.capture_image()  # take a snapshot
+
     def keyReleased(self, key):
         """Update velocities based on key pressed
         Arguments:
@@ -533,25 +539,25 @@ class MainWindow(QMainWindow):
 
         if key == 0:  # Triangle key
             self.th.aircraft.move()  # set forward velocity
-        elif key == 1: # Circle key
+        elif key == 1:  # Circle key
             self.th.aircraft.move()  # set right velocity
-        elif key == 2: # Times key
-            self.th.aircraft.move() # set backward velocity
-        elif key == 3: # Square key
+        elif key == 2:  # Times key
+            self.th.aircraft.move()  # set backward velocity
+        elif key == 3:  # Square key
             self.th.aircraft.move()  # set left velocity
-        elif key == 4: # Left 1
+        elif key == 4:  # Left 1
             self.th.aircraft.move()  # set up velocity
-        elif key == 5: # Right 1 key
+        elif key == 5:  # Right 1 key
             self.th.aircraft.move()  # set yaw right velocity
-        elif key == 6: # Left 2 key
+        elif key == 6:  # Left 2 key
             self.th.aircraft.move()  # set down velocity
-        elif key == 7: # Right 2 key
+        elif key == 7:  # Right 2 key
             self.th.aircraft.move()  # set yaw left velocity
         elif key == 8:  # select key
             self.th.aircraft.initite_land()
         elif key == 9:  # start key
             self.th.aircraft.initite_takeoff()
-     
+
     def try_init_aircraft_on_error(self, response):
         """Try to reinitialize the aircraft object if it failed to respond to command.
         This usually happens when the aircraft crashes physically but remains on.
@@ -664,8 +670,8 @@ class MainWindow(QMainWindow):
         """
         This method sets The wifi icon when the drone is not connected
         """
-        pixmap = QtGui.QPixmap("resources/images/nowifi.jpeg")
-        self.label.setPixmap(pixmap)
+        # pixmap = QtGui.QPixmap("resources/images/nowifi.jpeg")
+        self.label.setPixmap(self.pixmap)
         # self.setStyleSheet("text-align:center")
         self.label.setStyleSheet(f"qproperty-alignment: {int(QtCore.Qt.AlignCenter)};")
 
