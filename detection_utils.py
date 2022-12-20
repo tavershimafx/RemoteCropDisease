@@ -94,6 +94,10 @@ class Detection(NamedTuple):
 
     bounding_box: Rect
     categories: List[Category]
+    x: int
+    y: int
+    w: int
+    h: int
 
 
 def edgetpu_lib_name():
@@ -270,19 +274,26 @@ class ObjectDetector:
         for i in range(count):
             if scores[i] >= self._options.score_threshold:
                 y_min, x_min, y_max, x_max = boxes[i]
-                bounding_box = Rect(
-                    top=int(y_min * image_height),
-                    left=int(x_min * image_width),
-                    bottom=int(y_max * image_height),
-                    right=int(x_max * image_width),
-                )
+                top = int(y_min * image_height)
+                left = int(x_min * image_width)
+                bottom = int(y_max * image_height)
+                right = int(x_max * image_width)
+                bounding_box = Rect(top=top, left=left, bottom=bottom, right=right)
                 class_id = int(classes[i])
                 category = Category(
                     score=scores[i],
                     label=self._label_list[class_id],  # 0 is reserved for background
                     index=class_id,
                 )
-                result = Detection(bounding_box=bounding_box, categories=[category])
+                result = Detection(
+                    bounding_box=bounding_box,
+                    categories=[category],
+                    # x=int(x_min),y=int(y_min),h=int(y_max),w=int(x_max)
+                    x=left,
+                    y=top,
+                    h=bottom,
+                    w=right,
+                )
                 results.append(result)
 
         # Sort detection results by score ascending
