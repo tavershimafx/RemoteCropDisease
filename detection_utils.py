@@ -1,6 +1,6 @@
 # @title Load the trained TFLite model and define some visualization functions
 
-# @markdown This code comes from the TFLite Object Detection [Raspberry Pi sample](https://github.com/tensorflow/examples/tree/master/lite/examples/object_detection/raspberry_pi).
+# @markdown This code is derived from the TFLite Object Detection [Raspberry Pi sample](https://github.com/tensorflow/examples/tree/master/lite/examples/object_detection/raspberry_pi).
 
 import platform
 from typing import List, NamedTuple
@@ -43,7 +43,7 @@ def tflite_predict(input_model, data):
 
 # load the model
 tflite_model = tf.lite.Interpreter(
-    model_path="RemoteCropDisease/resources/plant_diseas_model.tflite", num_threads=1
+    model_path="resources/plant_diseas_model.tflite", num_threads=1
 )
 
 # tflite_model.resize_tensor_input(0, [-1, 224, 224, 3])
@@ -422,4 +422,4 @@ def visualize_classnames_with_mobilenet(
             _FONT_THICKNESS,
         )
 
-    return image
+    return image, predictions

@@ -145,7 +145,7 @@ class Thread(QThread):
     updateFrame = Signal(QImage)
     prediction_dict = Signal(dict)
 
-    def __init__(self, no_connection_image, parent=None):
+    def __init__(self, parent=None):
         QThread.__init__(self, parent)
         self.trained_file = None
         self.status = True
@@ -154,13 +154,13 @@ class Thread(QThread):
         self.minArea = 500
         # if the model is not minProbability sure about a prediction it shouldn't return
         # or draw the prediction
-        self.minProbability = 0.6
+        self.minProbability = 0.2
         # list of the predcitions gotten from the frames
         self.predictions = []
 
         self.aircraft = Aircraft()
 
-        self.no_connection_image = no_connection_image.toImage()
+        #self.no_connection_image = no_connection_image.toImage()
 
     def set_minArea(self, area):
         self.minArea = area
@@ -191,7 +191,7 @@ class Thread(QThread):
 
             # this happens when we lost the video feed from the drone
             if type(frame) is not ndarray:
-                return
+                continue
 
             # copy the frame to avoid making changes to the orignal frames
             imgContour = frame.copy()
@@ -293,7 +293,7 @@ class MainWindow(QMainWindow):
         self.label.setFixedSize(1070, 600)
 
         # Thread in charge of updating the image
-        self.th = Thread(self, self.pixmap)
+        self.th = Thread(self)
         self.th.finished.connect(self.close)
         self.th.updateFrame.connect(self.setImage)
         self.th.prediction_dict.connect(self.updatePredictionList)
