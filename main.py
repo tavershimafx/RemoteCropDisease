@@ -42,6 +42,10 @@ from PySide6.QtWidgets import (
 from detection_utils import *
 from viewmodels.aircraft import Aircraft
 import pygame
+from os import environ
+import uuid
+
+pictures_folder = os.path.join(environ["USERPROFILE"], "Pictures", "tello")
 
 # qapp = QtWidgets.qApp
 
@@ -80,90 +84,32 @@ def efficient_lite(img, detection_threshold):
     return image_np, predictions
 
 
-# def crop_and_resize(img, x, y, w, h):
-#     """
-#     This method crops the image at the cordinates given and resizes it to 224,224 which is the dimension the plant disease ai model accepts
-#     Args:
-#         img (_nparray_): image array
-#         x (_int_): x cordinate of the top corner
-#         y (_int_): y cordingate of the top corner
-#         w (_int_): width of the image
-#         h (_int_): height of the image
-
-#     Returns:
-#         _nparray_: resized image array
-#     """
-#     cropped_image = img[y : y + h, x : x + w]
-
-#     # resize the image to fit the model input shape
-#     resized_cropped_image = cv2.resize(
-#         cropped_image, INPUT_DIM, interpolation=cv2.INTER_AREA
-#     )
-#     resized_cropped_image = np.expand_dims(resized_cropped_image, axis=0)
-#     resized_cropped_image = resized_cropped_image.astype(np.float32)
-#     resized_cropped_image = resized_cropped_image / 255
-#     return resized_cropped_image
-
-
-# def tflite_predict(input_model, data):
-#     """
-
-#     Args:
-#         input_model (_kerasmodel_): _this is the loaded input model_
-#         data (_nparray_): _this is the input image of shape 1,224,244,3_
-
-#     Returns:
-#         _nparray_: _this is the prediction of the network of shape 1,38 which contains the probability for all the 38 classes _
-#     """
-#     input_details = input_model.get_input_details()
-#     # print(input_details)
-#     output_details = input_model.get_output_details()
-#     input_model.set_tensor(0, data)
-#     input_model.invoke()
-#     output_data = input_model.get_tensor(output_details[0]["index"])
-#     return output_data
-
-
-# def detect_leaf(img):
-#     """
-#     This method detects all the leaves in the image by dropping all non green colors and creating a mask on the green objects
-#     Args:
-#         img (_nparray_): _raw image from the camera_
-
-#     Returns:
-#         _nparray_: _mask with non green pixels set to 0,(black) and green pixels set to 255 _
-#         _nparray_: _image with non green pixel set to 0 and green pixel left the way the are(this image would be given to the plant diesase detection ai/neural network)_
-#     """
-#     lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-#     # store the a-channel
-#     a_channel = lab[:, :, 1]
-#     # Automate threshold using Otsu method
-#     th = cv2.threshold(a_channel, 127, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
-#     # Mask the result with the original image
-#     masked = cv2.bitwise_and(img, img, mask=th)
-#     return masked, th
-
-
 def save_images_periodically(img):
-    desktop = os.path.expanduser("~/Desktop")
-    # get the current date time
-    current_dateTime = datetime.now()
-    filepath = Path(
-        f"{desktop}/leaf Disease Detection/predictions/result{current_dateTime}.csv"
-    )
-    filepath.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(filepath, img)
-    threading.Timer(SAVE_TIME_GAP, save_images_periodically, [img]).start()
+    # desktop = os.path.expanduser("~/Desktop")
+    # # get the current date time
+    # current_dateTime = datetime.now()
+    # filepath = Path(
+    #     f"{desktop}/leaf Disease Detection/predictions/result{current_dateTime}.jpg"
+    # )
+    # filepath.parent.mkdir(parents=True, exist_ok=True)
+    # cv2.imwrite(f"{desktop}/leaf Disease Detection/predictions/result{current_dateTime}.jpg", img)
+    if not os.path.exists(pictures_folder):
+            os.mkdir(pictures_folder)
+   
+    cv2.imwrite(f"{pictures_folder}/{uuid.uuid4().hex}.png", img)
+
+    #threading.Timer(SAVE_TIME_GAP, save_images_periodically, [img]).start()
 
 
 class Thread(QThread):
     updateFrame = Signal(QImage)
     prediction_dict = Signal(dict)
 
-    def __init__(self, parent=None):
+    def __init__(self, no_wifi, parent=None):
         QThread.__init__(self, parent)
         self.trained_file = None
         self.status = True
+        self.no_wifi = no_wifi
 
         self.isPredict = False
         self.minArea = 500
@@ -173,6 +119,8 @@ class Thread(QThread):
         # list of the predcitions gotten from the frames
         self.predictions = []
 
+        
+        #self.save_img_routine = threading.Timer(SAVE_TIME_GAP, save_images_periodically).start()
         self.aircraft = Aircraft()
 
         # self.no_connection_image = no_connection_image.toImage()
@@ -193,13 +141,22 @@ class Thread(QThread):
         detecting and drawing bounding boxes on the frames
         and emiting each frame to the MainWindow
         """
+        counter = 0
         while self.status:
-            # substitute this for the drone camera feed
-            # ret, frame = self.cap.read()
+            # try and get a state. if it throws an error, the drone is no longer connected
+            try:
+                self.aircraft.get_state("speed")
+            except:
+                self.updateFrame.emit(self.no_wifi.toImage())
+                continue
+            
+            counter += 1
+
             frame_read = self.aircraft.get_frame()  # get a frame from the aircraft
             if frame_read == None:
+                # self.updateFrame.emit(self.no_wifi.toImage())
+                # self.aircraft.is_connected = False
                 # self.start_stop_predictions()
-                # self.updateFrame.emit(scaled_img)
                 continue
 
             frame = frame_read.frame
@@ -213,54 +170,21 @@ class Thread(QThread):
             img_detections, predictions = efficient_lite(frame, self.minProbability)
             for prediction in predictions:
                 self.prediction_dict.emit(prediction)
-            # the masked image is the original image without the non green parts
-            # masked, mask = detect_leaf(imgContour)
-            # # find contours on the image
-            # ret, thresh = cv2.threshold(mask, 127, 255, 0)
-            # contours, hierarchy = cv2.findContours(thresh, 1, 2)
-            # if self.isPredict:
-            #     for c in contours:
-            #         prediction_dict = {}
-            #         roi_dict = {}
-            #         peri = cv2.arcLength(c, True)
-            #         approx = cv2.approxPolyDP(c, 0.01 * peri, True)
-            #         x, y, w, h = cv2.boundingRect(c)
-            #         area = cv2.contourArea(c)
-            #         if area > self.minArea:
-            #             resized_cropped_image = crop_and_resize(masked, x, y, w, h)
-            #             preds = tflite_predict(tflite_model, resized_cropped_image)
-
-            #             predicted_value = preds[0][np.argmax(preds[0])]
-            #             leaf_type = CLASSES[np.argmax(preds[0])]
-            #             prediction_dict["leaf"] = leaf_type
-            #             prediction_dict["probability"] = predicted_value
-            #             self.predictions.extend(prediction_dict)
-            #             if predicted_value > self.minProbability:
-            #                 prob = round(predicted_value, 2)
-            #                 text = f"{leaf_type} {prob}"
-            #                 # draw the rectangles on the frame
-            #                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            #                 cv2.putText(
-            #                     frame,
-            #                     text,
-            #                     (x + (w // 2) - 10, y + (h // 2) - 10),
-            #                     cv2.FONT_HERSHEY_COMPLEX,
-            #                     0.7,
-            #                     (0, 255, 0),
-            #                     1,
-            #                 )
-            #                 self.prediction_dict.emit(prediction_dict)
-            # Reading the image in RGB to display it
+            
             # 🥸 AKO JOGODO abeg help me comment this line, try the next one make i see wetin go happen
             color_frame = cv2.cvtColor(img_detections, cv2.COLOR_BGR2RGB)
-            save_images_periodically(color_frame)
-            # color_frame = img_detections
+            
+            if counter % 30 == 0:
+                Thread(save_images_periodically,[frame]).start()
+                counter = 0
+            
             # Creating and scaling QImage
             h, w, ch = color_frame.shape
             img = QImage(color_frame.data, w, h, ch * w, QImage.Format_RGB888)
             scaled_img = img.scaled(1200, 600, Qt.KeepAspectRatio)
 
             # Emit signal
+            
             self.updateFrame.emit(scaled_img)
         sys.exit(-1)
 
@@ -309,7 +233,7 @@ class MainWindow(QMainWindow):
         self.label.setFixedSize(1070, 600)
 
         # Thread in charge of updating the image
-        self.th = Thread(self)
+        self.th = Thread(self.pixmap,parent=self)
         self.th.finished.connect(self.close)
         self.th.updateFrame.connect(self.setImage)
         self.th.prediction_dict.connect(self.updatePredictionList)

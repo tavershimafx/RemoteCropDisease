@@ -173,3 +173,6 @@ class Aircraft(object):
                 time.sleep(1 / 30)
 
             video.release()
+
+    def get_state(self, key):
+        return self.tello.get_state_field(key)
