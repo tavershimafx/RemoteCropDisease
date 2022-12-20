@@ -48,7 +48,7 @@ S = 60
 
 
 # load the model
-tflite_model = tf.lite.Interpreter(model_path="resources\cropdisease.tflite")
+tflite_model = tf.lite.Interpreter(model_path="resources\cropdisease_lite4.tflite")
 
 # tflite_model.resize_tensor_input(0, [-1, 224, 224, 3])
 tflite_model.allocate_tensors()
@@ -70,10 +70,10 @@ def efficient_lite(img, detection_threshold):
     detections = detector.detect(img)
 
     # Draw keypoints and edges on input image
-    # image_np, predictions = visualize(img, detections)
+    image_np, predictions = visualize(img, detections)
 
     # Draw keypoints and edges on input image using classnames predicted by mobilent
-    image_np, predictions = visualize_classnames_with_mobilenet(img, detections)
+    # image_np, predictions = visualize_classnames_with_mobilenet(img, detections)
     return image_np, predictions
 
 

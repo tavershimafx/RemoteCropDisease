@@ -418,7 +418,7 @@ def visualize_classnames_with_mobilenet(
         prediction_dict["leaf"] = class_name
         prediction_dict["probability"] = probability
         predictions.append(prediction_dict)
-        result_text = probability + " (" + str(probability) + ")"
+        result_text = class_name + " (" + str(probability) + ")"
         text_location = (
             _MARGIN + detection.bounding_box.left,
             _MARGIN + _ROW_SIZE + detection.bounding_box.top,
