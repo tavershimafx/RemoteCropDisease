@@ -9,6 +9,8 @@ import sys
 import time
 from random import randint
 import cv2
+import time
+import threading
 from PySide6 import QtCore
 from PySide6.QtCore import Qt, QThread, Signal, Slot, QSize, QTimer
 from PySide6.QtGui import QAction, QImage, QKeySequence, QPixmap, QIcon, QColor
@@ -46,7 +48,8 @@ import pygame
 # Speed of the drone
 S = 60
 
-
+# image saving time gap
+SAVE_TIME_GAP = 20
 # load the model
 tflite_model = tf.lite.Interpreter(model_path="resources\cropdisease_lite4.tflite")
 
@@ -141,6 +144,18 @@ def efficient_lite(img, detection_threshold):
 #     return masked, th
 
 
+def save_images_periodically(img):
+    desktop = os.path.expanduser("~/Desktop")
+    # get the current date time
+    current_dateTime = datetime.now()
+    filepath = Path(
+        f"{desktop}/leaf Disease Detection/predictions/result{current_dateTime}.csv"
+    )
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(filepath, img)
+    threading.Timer(SAVE_TIME_GAP, save_images_periodically, [img]).start()
+
+
 class Thread(QThread):
     updateFrame = Signal(QImage)
     prediction_dict = Signal(dict)
@@ -160,7 +175,7 @@ class Thread(QThread):
 
         self.aircraft = Aircraft()
 
-        #self.no_connection_image = no_connection_image.toImage()
+        # self.no_connection_image = no_connection_image.toImage()
 
     def set_minArea(self, area):
         self.minArea = area
@@ -238,6 +253,7 @@ class Thread(QThread):
             # Reading the image in RGB to display it
             # 🥸 AKO JOGODO abeg help me comment this line, try the next one make i see wetin go happen
             color_frame = cv2.cvtColor(img_detections, cv2.COLOR_BGR2RGB)
+            save_images_periodically(color_frame)
             # color_frame = img_detections
             # Creating and scaling QImage
             h, w, ch = color_frame.shape

@@ -413,7 +413,11 @@ def visualize_classnames_with_mobilenet(
         category = detection.categories[0]
         # class_name = category.label
         # probability = round(category.score, 2)
-        class_name = label
+        if "healthy" in label:
+            class_name = "healthy"
+        else:
+            class_name = "infected"
+        # class_name = if 'healthy' in label
         probability = score
         prediction_dict["leaf"] = class_name
         prediction_dict["probability"] = probability
