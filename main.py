@@ -20,7 +20,7 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from constants import CLASSES
-
+import multiprocessing
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -45,8 +45,13 @@ import pygame
 from os import environ
 import uuid
 
-pictures_folder = os.path.join(environ["USERPROFILE"], "Pictures", "tello")
-
+# pictures_folder = os.path.join(environ["USERPROFILE"], "Pictures", "tello")
+desktop = os.path.expanduser("~/Desktop")
+# get the current date time
+current_dateTime = datetime.now()
+filepath = Path(f"{desktop}/leaf Disease Detection/predictions/pictures")
+filepath.parent.mkdir(parents=True, exist_ok=True)
+pictures_folder = f"{desktop}/leaf Disease Detection/predictions/pictures"
 # qapp = QtWidgets.qApp
 
 # Speed of the drone
@@ -55,7 +60,9 @@ S = 60
 # image saving time gap
 SAVE_TIME_GAP = 20
 # load the model
-tflite_model = tf.lite.Interpreter(model_path="resources\cropdisease_lite4.tflite")
+tflite_model = tf.lite.Interpreter(
+    model_path="RemoteCropDisease/resources/cropdisease.tflite"
+)
 
 # tflite_model.resize_tensor_input(0, [-1, 224, 224, 3])
 tflite_model.allocate_tensors()
@@ -64,12 +71,23 @@ TFLITE_MODEL_PATH = "resources/cropdisease.tflite"
 MODEL_INPUT_SIZE = 224
 INPUT_DIM = (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE)
 
+DEFAULT_MIN_CLASS = 0.8
+DEFAULT_MIN_BOX = 0.6
 
-def efficient_lite(img, detection_threshold):
+# initialize the default number of threads
+NUMBER_OF_THREADS = 2
+# try to optimize for the number of threads on the computer
+cpu_count = multiprocessing.cpu_count()
+NUMBER_OF_THREADS = cpu_count
+# print(type(cpu_count))
+
+
+def efficient_lite(img, detection_threshold, class_threshold):
     # Load the TFLite model
     options = ObjectDetectorOptions(
-        num_threads=1,
+        num_threads=NUMBER_OF_THREADS,
         score_threshold=detection_threshold,
+        class_threshold=class_threshold,
     )
     detector = ObjectDetector(model_path=TFLITE_MODEL_PATH, options=options)
 
@@ -77,10 +95,12 @@ def efficient_lite(img, detection_threshold):
     detections = detector.detect(img)
 
     # Draw keypoints and edges on input image
-    image_np, predictions = visualize(img, detections)
+    # image_np, predictions = visualize(img, detections)
 
     # Draw keypoints and edges on input image using classnames predicted by mobilent
-    # image_np, predictions = visualize_classnames_with_mobilenet(img, detections)
+    image_np, predictions = visualize_classnames_with_mobilenet(
+        img, detections, class_threshold
+    )
     return image_np, predictions
 
 
@@ -94,11 +114,11 @@ def save_images_periodically(img):
     # filepath.parent.mkdir(parents=True, exist_ok=True)
     # cv2.imwrite(f"{desktop}/leaf Disease Detection/predictions/result{current_dateTime}.jpg", img)
     if not os.path.exists(pictures_folder):
-            os.mkdir(pictures_folder)
-   
+        os.mkdir(pictures_folder)
+
     cv2.imwrite(f"{pictures_folder}/{uuid.uuid4().hex}.png", img)
 
-    #threading.Timer(SAVE_TIME_GAP, save_images_periodically, [img]).start()
+    # threading.Timer(SAVE_TIME_GAP, save_images_periodically, [img]).start()
 
 
 class Thread(QThread):
@@ -112,21 +132,20 @@ class Thread(QThread):
         self.no_wifi = no_wifi
 
         self.isPredict = False
-        self.minArea = 500
+        self.minClass = 500
         # if the model is not minProbability sure about a prediction it shouldn't return
         # or draw the prediction
-        self.minProbability = 0.2
+        self.minProbability = DEFAULT_MIN_BOX
         # list of the predcitions gotten from the frames
         self.predictions = []
 
-        
-        #self.save_img_routine = threading.Timer(SAVE_TIME_GAP, save_images_periodically).start()
+        # self.save_img_routine = threading.Timer(SAVE_TIME_GAP, save_images_periodically).start()
         self.aircraft = Aircraft()
 
         # self.no_connection_image = no_connection_image.toImage()
 
-    def set_minArea(self, area):
-        self.minArea = area
+    def set_minClass(self, minClass):
+        self.minClass = minClass
 
     def set_minProbability(self, probability):
         self.minProbability = float(probability)
@@ -144,48 +163,61 @@ class Thread(QThread):
         counter = 0
         while self.status:
             # try and get a state. if it throws an error, the drone is no longer connected
-            try:
-                self.aircraft.get_state("speed")
-            except:
-                self.updateFrame.emit(self.no_wifi.toImage())
-                continue
-            
-            counter += 1
 
+            # if self.aircraft.get_battery() == None:
+            #     self.updateFrame.emit(self.no_wifi.toImage())
+            #     continue
+
+            counter += 1
+            self.aircraft.get_status()
             frame_read = self.aircraft.get_frame()  # get a frame from the aircraft
-            if frame_read == None:
+            if frame_read != None:
                 # self.updateFrame.emit(self.no_wifi.toImage())
                 # self.aircraft.is_connected = False
                 # self.start_stop_predictions()
-                continue
+                # continue
 
-            frame = frame_read.frame
+                frame = frame_read.frame
 
-            # this happens when we lost the video feed from the drone
-            if type(frame) is not ndarray:
-                continue
+                # this happens when we lost the video feed from the drone
+                # if type(frame) is not ndarray:
+                #     continue
 
-            # copy the frame to avoid making changes to the orignal frames
-            imgContour = frame.copy()
-            img_detections, predictions = efficient_lite(frame, self.minProbability)
-            for prediction in predictions:
-                self.prediction_dict.emit(prediction)
-            
-            # 🥸 AKO JOGODO abeg help me comment this line, try the next one make i see wetin go happen
-            color_frame = cv2.cvtColor(img_detections, cv2.COLOR_BGR2RGB)
-            
-            if counter % 30 == 0:
-                Thread(save_images_periodically,[frame]).start()
-                counter = 0
-            
-            # Creating and scaling QImage
-            h, w, ch = color_frame.shape
-            img = QImage(color_frame.data, w, h, ch * w, QImage.Format_RGB888)
-            scaled_img = img.scaled(1200, 600, Qt.KeepAspectRatio)
+                # copy the frame to avoid making changes to the orignal frames
+                # imgContour = frame.copy()
+                if frame is None:
+                    self.updateFrame.emit(self.no_wifi.toImage())
+                    continue
+                img_detections, predictions = efficient_lite(
+                    frame, self.minProbability, self.minClass
+                )
+                for prediction in predictions:
+                    self.prediction_dict.emit(prediction)
 
-            # Emit signal
-            
-            self.updateFrame.emit(scaled_img)
+                # 🥸 AKO JOGODO abeg help me comment this line, try the next one make i see wetin go happen
+                color_frame = cv2.cvtColor(img_detections, cv2.COLOR_BGR2RGB)
+
+                if counter % 30 == 0:
+                    # Thread(save_images_periodically, [frame]).start()
+                    save_images_periodically(frame)
+                    counter = 0
+
+                # Creating and scaling QImage
+                h, w, ch = color_frame.shape
+                img = QImage(color_frame.data, w, h, ch * w, QImage.Format_RGB888)
+                scaled_img = img.scaled(1200, 600, Qt.KeepAspectRatio)
+
+                # Emit signal
+
+                self.updateFrame.emit(scaled_img)
+            else:
+                self.updateFrame.emit(self.no_wifi.toImage())
+            # print(self.aircraft.get_battery())
+            # if self.aircraft.get_battery() == None:
+            #     self.updateFrame.emit(self.no_wifi.toImage())
+            # else:
+            #     self.updateFrame.emit(scaled_img)
+
         sys.exit(-1)
 
 
@@ -200,8 +232,8 @@ class MainWindow(QMainWindow):
         self.isStart = False
         self.isPredict = False
 
-        self.minArea = 500
-        self.minProbability = 0.6
+        self.minClassification = DEFAULT_MIN_CLASS
+        self.minProbability = DEFAULT_MIN_BOX
 
         # holds the names of all the leafs predicted to be exported to csv
         self.leafs = []
@@ -233,7 +265,7 @@ class MainWindow(QMainWindow):
         self.label.setFixedSize(1070, 600)
 
         # Thread in charge of updating the image
-        self.th = Thread(self.pixmap,parent=self)
+        self.th = Thread(self.pixmap, parent=self)
         self.th.finished.connect(self.close)
         self.th.updateFrame.connect(self.setImage)
         self.th.prediction_dict.connect(self.updatePredictionList)
@@ -249,29 +281,36 @@ class MainWindow(QMainWindow):
         self.areaSlider = QSlider(orientation=Qt.Orientation.Horizontal)
         # this is the threshold slider that controls the minimum probability to be considered by the network
         self.thresholdSlider = QSlider(orientation=Qt.Orientation.Horizontal)
+        self.thresholdSlider1 = QSlider(orientation=Qt.Orientation.Horizontal)
         self.areaSlider.setMinimum(100)
         self.areaSlider.setMaximum(1000)
         self.areaSlider.setTickInterval(50)
+        # threshold slider for bounding box model
         self.thresholdSlider.setMinimum(0)
         self.thresholdSlider.setMaximum(100)
         self.thresholdSlider.setTickInterval(10)
 
-        top_slider_layout.addWidget(QLabel("Area"), 5)
-        self.areaLabel = QLabel(f"{self.minArea}")
-        self.areaMinLabel = QLabel("         100")
-        self.areaMaxLabel = QLabel("1000")
-        top_slider_layout.addWidget(self.areaLabel, 2)
-        top_slider_layout.addWidget(self.areaMinLabel, 5)
-        top_slider_layout.addWidget(self.areaSlider, 83)
-        top_slider_layout.addWidget(self.areaMaxLabel, 5)
+        # threshold slider for classification model
+        self.thresholdSlider1.setMinimum(0)
+        self.thresholdSlider1.setMaximum(100)
+        self.thresholdSlider1.setTickInterval(10)
+
+        top_slider_layout.addWidget(QLabel("Class Threshold"), 5)
+        self.threshold1Label = QLabel(f"{self.minClassification}")
+        self.threshold1MinLabel = QLabel("         0")
+        self.threshold1MaxLabel = QLabel("1")
+        top_slider_layout.addWidget(self.threshold1Label, 2)
+        top_slider_layout.addWidget(self.threshold1MinLabel, 5)
+        top_slider_layout.addWidget(self.thresholdSlider1, 83)
+        top_slider_layout.addWidget(self.threshold1MaxLabel, 5)
 
         self.thresholdLabel = QLabel(f"{self.minProbability}")
         self.thresholdMinLabel = QLabel("         0")
         self.thresholdMaxLabel = QLabel("1")
 
-        self.areaSlider.setValue(self.minArea)
+        self.thresholdSlider1.setValue(self.minClassification)
         self.thresholdSlider.setValue(self.minProbability)
-        bottom_slider_layout.addWidget(QLabel("Threshold"), 2)
+        bottom_slider_layout.addWidget(QLabel("Bounding Box Threshold"), 2)
         bottom_slider_layout.addWidget(self.thresholdLabel, 2)
         bottom_slider_layout.addWidget(self.thresholdMinLabel, 2)
         bottom_slider_layout.addWidget(self.thresholdSlider, 88)
@@ -399,7 +438,7 @@ class MainWindow(QMainWindow):
         self.predict_button.clicked.connect(self.predict_start_stop)
         self.export_to_csv_button.clicked.connect(self.export_to_csv)
         self.thresholdSlider.valueChanged.connect(self.thresholdChange)
-        self.areaSlider.valueChanged.connect(self.areaChange)
+        self.thresholdSlider1.valueChanged.connect(self.threshold1Change)
         self.setNoWifi()
 
         # create a timer
@@ -579,17 +618,18 @@ class MainWindow(QMainWindow):
             df.to_csv(filepath)
 
     @Slot()
-    def areaChange(self):
+    def threshold1Change(self):
         """
         This method handles the changes to the areavalue when the area slider is moved
         """
         # area is a value between 500 and 1000
         # get the value
-        self.minArea = self.areaSlider.value()
+        minClass = self.thresholdSlider1.value()
+        self.minClassification = minClass / 100
         # set the value on the label text
-        self.areaLabel.setText(f"{self.minArea}")
+        self.threshold1Label.setText(f"{self.minClassification}")
         # set change the area value on the predicton thread
-        self.th.set_minArea(self.minArea)
+        self.th.set_minClass(self.minClassification)
 
     @Slot()
     def thresholdChange(self):
