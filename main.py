@@ -33,10 +33,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QSlider,
-    QProgressDialog,
-    QListView,
-    QListWidget,
-    QListWidgetItem,
     QScrollArea,
 )
 from detection_utils import *
@@ -105,14 +101,8 @@ def efficient_lite(img, detection_threshold, class_threshold):
 
 
 def save_images_periodically(img):
-    # desktop = os.path.expanduser("~/Desktop")
     # # get the current date time
-    # current_dateTime = datetime.now()
-    # filepath = Path(
-    #     f"{desktop}/leaf Disease Detection/predictions/result{current_dateTime}.jpg"
-    # )
-    # filepath.parent.mkdir(parents=True, exist_ok=True)
-    # cv2.imwrite(f"{desktop}/leaf Disease Detection/predictions/result{current_dateTime}.jpg", img)
+
     if not os.path.exists(pictures_folder):
         os.mkdir(pictures_folder)
 
@@ -123,6 +113,7 @@ def save_images_periodically(img):
 
 class Thread(QThread):
     updateFrame = Signal(QImage)
+    updateStatus = Signal(bool)
     prediction_dict = Signal(dict)
 
     def __init__(self, no_wifi, parent=None):
@@ -130,9 +121,10 @@ class Thread(QThread):
         self.trained_file = None
         self.status = True
         self.no_wifi = no_wifi
+        self.isConnected = True
 
         self.isPredict = False
-        self.minClass = 500
+        self.minClass = DEFAULT_MIN_CLASS
         # if the model is not minProbability sure about a prediction it shouldn't return
         # or draw the prediction
         self.minProbability = DEFAULT_MIN_BOX
@@ -145,10 +137,13 @@ class Thread(QThread):
         # self.no_connection_image = no_connection_image.toImage()
 
     def set_minClass(self, minClass):
-        self.minClass = minClass
+        self.minClass = float(minClass)
 
     def set_minProbability(self, probability):
         self.minProbability = float(probability)
+
+    def set_aircraft(self, aircraft):
+        self.aircraft = aircraft
 
     def start_stop_predictions(self):
         self.isPredict = not self.isPredict
@@ -160,65 +155,60 @@ class Thread(QThread):
         detecting and drawing bounding boxes on the frames
         and emiting each frame to the MainWindow
         """
+        # self.aircraft = Aircraft()
         counter = 0
         while self.status:
             # try and get a state. if it throws an error, the drone is no longer connected
 
-            # if self.aircraft.get_battery() == None:
-            #     self.updateFrame.emit(self.no_wifi.toImage())
-            #     continue
-
             counter += 1
-            self.aircraft.get_status()
-            frame_read = self.aircraft.get_frame()  # get a frame from the aircraft
-            if frame_read != None:
-                # self.updateFrame.emit(self.no_wifi.toImage())
-                # self.aircraft.is_connected = False
-                # self.start_stop_predictions()
-                # continue
-
+            # get a frame from the aircraft
+            try:
+                frame_read = self.aircraft.get_frame()
                 frame = frame_read.frame
-
+                print("FRAME HAS BEEN READ FROM AIRCRAFT")
                 # this happens when we lost the video feed from the drone
-                # if type(frame) is not ndarray:
-                #     continue
 
-                # copy the frame to avoid making changes to the orignal frames
-                # imgContour = frame.copy()
-                if frame is None:
-                    self.updateFrame.emit(self.no_wifi.toImage())
-                    continue
-                img_detections, predictions = efficient_lite(
-                    frame, self.minProbability, self.minClass
-                )
-                for prediction in predictions:
-                    self.prediction_dict.emit(prediction)
+                if self.isPredict:
+                    img_detections, predictions = efficient_lite(
+                        frame, self.minProbability, self.minClass
+                    )
+                    for prediction in predictions:
+                        self.prediction_dict.emit(prediction)
 
-                # 🥸 AKO JOGODO abeg help me comment this line, try the next one make i see wetin go happen
-                color_frame = cv2.cvtColor(img_detections, cv2.COLOR_BGR2RGB)
+                    # 🥸 AKO JOGODO abeg help me comment this line, try the next one make i see wetin go happen
+                    color_frame = cv2.cvtColor(img_detections, cv2.COLOR_BGR2RGB)
 
-                if counter % 30 == 0:
-                    # Thread(save_images_periodically, [frame]).start()
-                    save_images_periodically(frame)
-                    counter = 0
+                    if counter % 30 == 0:
+                        # Thread(save_images_periodically, [frame]).start()
+                        save_images_periodically(frame)
+                        counter = 0
 
-                # Creating and scaling QImage
-                h, w, ch = color_frame.shape
-                img = QImage(color_frame.data, w, h, ch * w, QImage.Format_RGB888)
-                scaled_img = img.scaled(1200, 600, Qt.KeepAspectRatio)
+                    # Creating and scaling QImage
+                    h, w, ch = color_frame.shape
+                    img = QImage(color_frame.data, w, h, ch * w, QImage.Format_RGB888)
+                    scaled_img = img.scaled(1200, 600, Qt.KeepAspectRatio)
 
-                # Emit signal
+                    # Emit signal
 
-                self.updateFrame.emit(scaled_img)
-            else:
-                self.updateFrame.emit(self.no_wifi.toImage())
-            # print(self.aircraft.get_battery())
-            # if self.aircraft.get_battery() == None:
-            #     self.updateFrame.emit(self.no_wifi.toImage())
-            # else:
-            #     self.updateFrame.emit(scaled_img)
+                    self.updateFrame.emit(scaled_img)
+                else:
+                    color_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    h, w, ch = color_frame.shape
+                    img = QImage(color_frame.data, w, h, ch * w, QImage.Format_RGB888)
+                    scaled_img = img.scaled(1200, 600, Qt.KeepAspectRatio)
+                    self.updateFrame.emit(scaled_img)
+                self.updateStatus.emit(True)
+            except:
+                print("Could not connect to the drone")
+                self.aircraft = None
+                self.aircraft = Aircraft()
+                self.isConnected = False
+                # self.aircraft.tello.cap.release()
+                self.updateFrame.emit(self.no_wifi)
+                self.updateStatus.emit(False)
+                break
 
-        sys.exit(-1)
+        # self.exit(-1)
 
 
 class MainWindow(QMainWindow):
@@ -248,6 +238,7 @@ class MainWindow(QMainWindow):
         self.menu = self.menuBar()
         self.menu_file = self.menu.addMenu("File")
         self.pixmap = QtGui.QPixmap("resources/images/nowifi.jpeg")
+        self.no_wifi = self.pixmap.toImage()
         exit = QAction("Exit", self, triggered=app.quit)
         self.menu_file.addAction(exit)
 
@@ -265,10 +256,11 @@ class MainWindow(QMainWindow):
         self.label.setFixedSize(1070, 600)
 
         # Thread in charge of updating the image
-        self.th = Thread(self.pixmap, parent=self)
+        self.th = Thread(self.no_wifi, parent=self)
         self.th.finished.connect(self.close)
         self.th.updateFrame.connect(self.setImage)
         self.th.prediction_dict.connect(self.updatePredictionList)
+        self.th.updateStatus.connect(self.setDroneStatus)
         # Model group
         self.group_model = QGroupBox("Prediction parameters")
         # self.group_model.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
@@ -445,9 +437,9 @@ class MainWindow(QMainWindow):
         self.timer = QTimer()
         # set timer timeout callback function
         self.timer.timeout.connect(self.joystick_handler)
-        self.timer.start(20)
+        self.timer.start(5)
 
-        self.start()
+        # self.start()
 
     @Slot()
     def set_model(self, text):
@@ -564,6 +556,15 @@ class MainWindow(QMainWindow):
     def setImage(self, image):
         self.label.setPixmap(QPixmap.fromImage(image))
 
+    @Slot()
+    def setDroneStatus(self, status):
+        if status:
+            self.connect_drone_button.setIcon(self.drone_icon_green)
+            self.start_stop_button.setText("CONNECTED")
+        else:
+            self.connect_drone_button.setIcon(self.drone_icon_gray)
+            self.start_stop_button.setText("DISCONNECTED")
+
     @Slot(dict)
     def updatePredictionList(self, prediction_dict):
         """
@@ -674,10 +675,13 @@ class MainWindow(QMainWindow):
         # try connecting to the pad
         # if it succeeeds show
         try:
+            # try reintializing the drone object before connecting
+            # self.th.set_aircraft(Aircraft())
             self.th.aircraft.connect()
             self.connect_drone_button.setIcon(self.drone_icon_green)
             self.start_stop_button.setText("CONNECTED")
             self.drone_connection_success.exec()
+            self.th.start()
         except:
             self.start_stop_button.setText("DISCONNECTED")
             self.drone_connection_failed.exec()

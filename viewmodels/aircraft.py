@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from threading import Thread
+import time, threading
 
 # pictures_folder = os.path.join(environ["USERPROFILE"], "Pictures", "tello")
 desktop = os.path.expanduser("~/Desktop")
@@ -91,6 +92,8 @@ class Aircraft(object):
 
         if self.has_takeoff:
             return True
+
+        self.tello.send_keepalive()
 
         # if the aircraft retries takeoff for 10 times without any success, quit taking
         # off. Maybe the aircraft became unavailable or is busy
