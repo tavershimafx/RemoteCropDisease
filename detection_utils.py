@@ -1,6 +1,6 @@
 # @title Load the trained TFLite model and define some visualization functions
 
-# @markdown This code comes from the TFLite Object Detection [Raspberry Pi sample](https://github.com/tensorflow/examples/tree/master/lite/examples/object_detection/raspberry_pi).
+# @markdown This code is derived from the TFLite Object Detection [Raspberry Pi sample](https://github.com/tensorflow/examples/tree/master/lite/examples/object_detection/raspberry_pi).
 
 import platform
 from typing import List, NamedTuple
@@ -18,8 +18,9 @@ INPUT_DIM = (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE)
 
 # pylint: enable=g-import-not-at-top
 def crop_and_resize(img, x, y, w, h):
-    cropped_image = img[y:h, x:w].copy()
+    cropped_image = img[y:h, x:w]
     # resize the image to fit the model input shape
+    print(cropped_image.shape)
     resized_cropped_image = cv2.resize(
         cropped_image, INPUT_DIM, interpolation=cv2.INTER_AREA
     )
@@ -41,9 +42,33 @@ def tflite_predict(input_model, data):
     return leaf_type, predicted_value
 
 
+def detect_green_and_area_threshold_2(img, threshold):
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    # store the a-channel
+    a_channel = lab[:, :, 1]
+    # Automate threshold using Otsu method
+    mask = cv2.threshold(a_channel, 127, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[
+        1
+    ]
+    # Mask the result with the original image
+    # masked = cv2.bitwise_and(img, img, mask=mask)
+    # find the contours
+    ret, thresh = cv2.threshold(mask, 127, 255, 0)
+    contours, hierarchy = cv2.findContours(thresh, 1, 2)
+    # loop through contours and find any area greater than a threshold
+    for contour in contours:
+        peri = cv2.arcLength(contour, True)
+        approx = cv2.approxPolyDP(contour, 0.01 * peri, True)
+        # x, y, w, h = cv2.boundingRect(contour)
+        area = cv2.contourArea(contour)
+        if area > threshold:
+            return True
+        return False
+
+
 # load the model
 tflite_model = tf.lite.Interpreter(
-    model_path="RemoteCropDisease/resources/plant_diseas_model.tflite", num_threads=1
+    model_path="resources/plant_diseas_model.tflite", num_threads=1
 )
 
 # tflite_model.resize_tensor_input(0, [-1, 224, 224, 3])
@@ -71,6 +96,9 @@ class ObjectDetectorOptions(NamedTuple):
     score_threshold: float = 0.0
     """The score threshold of detection results to return."""
 
+    class_threshold: float = 0.0
+    """The threshold for classifying objects"""
+
 
 class Rect(NamedTuple):
     """A rectangle in 2D space."""
@@ -94,6 +122,10 @@ class Detection(NamedTuple):
 
     bounding_box: Rect
     categories: List[Category]
+    x: int
+    y: int
+    w: int
+    h: int
 
 
 def edgetpu_lib_name():
@@ -124,7 +156,7 @@ class ObjectDetector:
             ValueError: If the TFLite model is invalid.
             OSError: If the current OS isn't supported by EdgeTPU.
         """
-
+        self.minClass = options.class_threshold
         # Load metadata from model.
         displayer = metadata.MetadataDisplayer.with_model_file(model_path)
 
@@ -144,8 +176,41 @@ class ObjectDetector:
 
         # Load label list from metadata.
         file_name = displayer.get_packed_associated_file_list()[0]
-        label_map_file = displayer.get_associated_file_buffer(file_name).decode()
-        label_list = list(filter(lambda x: len(x) > 0, label_map_file.splitlines()))
+        # label_map_file = displayer.get_associated_file_buffer(file_name).decode()
+        # label_list = list(filter(lambda x: len(x) > 0, label_map_file.splitlines()))
+        label_list = [
+            "Corn rust leaf",
+            "Corn leaf blight",
+            "Tomato leaf late blight",
+            "Apple Scab Leaf",
+            "Tomato Septoria leaf spot",
+            "Tomato mold leaf",
+            "Bell_pepper leaf spot",
+            "Potato leaf early blight",
+            "grape leaf black rot",
+            "Tomato leaf yellow virus",
+            "Blueberry leaf",
+            "Bell_pepper leaf",
+            "Apple rust leaf",
+            "Tomato leaf bacterial spot",
+            "Raspberry leaf",
+            "Squash Powdery mildew leaf",
+            "Potato leaf late blight",
+            "Tomato leaf mosaic virus",
+            "Tomato Early blight leaf",
+            "Soybean leaf",
+            "Tomato leaf",
+            "Peach leaf",
+            "Soyabean leaf",
+            "Corn Gray leaf spot",
+            "Apple leaf",
+            "Strawberry leaf",
+            "Cherry leaf",
+            "grape leaf",
+            "Potato leaf",
+            "Tomato two spotted spider mites leaf",
+        ]
+
         self._label_list = label_list
 
         # Initialize TFLite model.
@@ -270,19 +335,26 @@ class ObjectDetector:
         for i in range(count):
             if scores[i] >= self._options.score_threshold:
                 y_min, x_min, y_max, x_max = boxes[i]
-                bounding_box = Rect(
-                    top=int(y_min * image_height),
-                    left=int(x_min * image_width),
-                    bottom=int(y_max * image_height),
-                    right=int(x_max * image_width),
-                )
+                top = int(y_min * image_height)
+                left = int(x_min * image_width)
+                bottom = int(y_max * image_height)
+                right = int(x_max * image_width)
+                bounding_box = Rect(top=top, left=left, bottom=bottom, right=right)
                 class_id = int(classes[i])
                 category = Category(
                     score=scores[i],
                     label=self._label_list[class_id],  # 0 is reserved for background
                     index=class_id,
                 )
-                result = Detection(bounding_box=bounding_box, categories=[category])
+                result = Detection(
+                    bounding_box=bounding_box,
+                    categories=[category],
+                    # x=int(x_min),y=int(y_min),h=int(y_max),w=int(x_max)
+                    x=left,
+                    y=top,
+                    h=bottom,
+                    w=right,
+                )
                 results.append(result)
 
         # Sort detection results by score ascending
@@ -343,6 +415,7 @@ def visualize(
         # Draw bounding_box
         start_point = detection.bounding_box.left, detection.bounding_box.top
         end_point = detection.bounding_box.right, detection.bounding_box.bottom
+        # everything below should go under an if statement that checks boxes with greens
         cv2.rectangle(image, start_point, end_point, _TEXT_COLOR, 3)
 
         # Draw label and score
@@ -371,8 +444,7 @@ def visualize(
 
 
 def visualize_classnames_with_mobilenet(
-    image: np.ndarray,
-    detections: List[Detection],
+    image: np.ndarray, detections: List[Detection], class_threshold: int
 ) -> np.ndarray:
     """Draws bounding boxes on the input image and return it.
     Args:
@@ -388,38 +460,52 @@ def visualize_classnames_with_mobilenet(
         y = detection.y
         w = detection.w
         h = detection.h
+        ci = image[y:h, x:w]
+        x1, y1, c = ci.shape
+        if (x1 == 0) or (y1 == 0) or (c == 0):
+            continue
+        # check if the region contains any green colors
+        # has_colors = detect_green_and_area_threshold_2(ci, 500)
+        # if not has_colors:
+        #     continue
         resized_image = crop_and_resize(image, x, y, w, h)
         label, score = tflite_predict(tflite_model, resized_image)
-        # Draw bounding_box
-        start_point = detection.bounding_box.left, detection.bounding_box.top
-        end_point = detection.bounding_box.right, detection.bounding_box.bottom
-        cv2.rectangle(image, start_point, end_point, _TEXT_COLOR, 3)
+        # check if the probability exceeds a certain threshold before drawing
+        if score > class_threshold:
+            # Draw bounding_box
+            start_point = detection.bounding_box.left, detection.bounding_box.top
+            end_point = detection.bounding_box.right, detection.bounding_box.bottom
+            cv2.rectangle(image, start_point, end_point, _TEXT_COLOR, 3)
 
-        print(f"x{x} y{y} w{w} h{h}")
+            print(f"x{x} y{y} w{w} h{h}")
 
-        print(start_point)
-        # Draw label and score
-        category = detection.categories[0]
-        # class_name = category.label
-        # probability = round(category.score, 2)
-        class_name = label
-        probability = score
-        prediction_dict["leaf"] = class_name
-        prediction_dict["probability"] = probability
-        predictions.append(prediction_dict)
-        result_text = probability + " (" + str(probability) + ")"
-        text_location = (
-            _MARGIN + detection.bounding_box.left,
-            _MARGIN + _ROW_SIZE + detection.bounding_box.top,
-        )
-        cv2.putText(
-            image,
-            result_text,
-            text_location,
-            cv2.FONT_HERSHEY_PLAIN,
-            _FONT_SIZE,
-            _TEXT_COLOR,
-            _FONT_THICKNESS,
-        )
+            print(start_point)
+            # Draw label and score
+            # category = detection.categories[0]
+            # class_name = category.label
+            # probability = round(category.score, 2)
+            if label.endswith("healthy"):
+                class_name = "healthy"
+            else:
+                class_name = "infected"
+            # class_name = if 'healthy' in label
+            probability = score
+            prediction_dict["leaf"] = class_name
+            prediction_dict["probability"] = probability
+            predictions.append(prediction_dict)
+            result_text = class_name + " (" + str(probability) + ")"
+            text_location = (
+                _MARGIN + detection.bounding_box.left,
+                _MARGIN + _ROW_SIZE + detection.bounding_box.top,
+            )
+            cv2.putText(
+                image,
+                result_text,
+                text_location,
+                cv2.FONT_HERSHEY_PLAIN,
+                _FONT_SIZE,
+                _TEXT_COLOR,
+                _FONT_THICKNESS,
+            )
 
-    return image
+    return image, predictions

@@ -1,4 +1,3 @@
-from qt_material import apply_stylesheet
 import tensorflow as tf
 import numpy as np
 from numpy import ndarray
@@ -9,6 +8,8 @@ import sys
 import time
 from random import randint
 import cv2
+import time
+import threading
 from PySide6 import QtCore
 from PySide6.QtCore import Qt, QThread, Signal, Slot, QSize, QTimer
 from PySide6.QtGui import QAction, QImage, QKeySequence, QPixmap, QIcon, QColor
@@ -18,7 +19,7 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from constants import CLASSES
-
+import multiprocessing
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -31,38 +32,58 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QSlider,
-    QProgressDialog,
-    QListView,
-    QListWidget,
-    QListWidgetItem,
     QScrollArea,
 )
+from qt_material import apply_stylesheet
 from detection_utils import *
 from viewmodels.aircraft import Aircraft
 import pygame
+from os import environ
+import uuid
 
+# pictures_folder = os.path.join(environ["USERPROFILE"], "Pictures", "tello")
+desktop = os.path.expanduser("~/Desktop")
+# get the current date time
+current_dateTime = datetime.now()
+filepath = Path(f"{desktop}/leaf Disease Detection/predictions/pictures")
+filepath.parent.mkdir(parents=True, exist_ok=True)
+pictures_folder = f"{desktop}/leaf Disease Detection/predictions/pictures"
 # qapp = QtWidgets.qApp
 
 # Speed of the drone
 S = 60
 
-
+# image saving time gap
+SAVE_TIME_GAP = 20
 # load the model
-tflite_model = tf.lite.Interpreter(model_path="resources\cropdisease.tflite")
+# tflite_model = tf.lite.Interpreter(
+#     model_path="RemoteCropDisease/resources/cropdisease.tflite"
+# )
 
 # tflite_model.resize_tensor_input(0, [-1, 224, 224, 3])
-tflite_model.allocate_tensors()
+#tflite_model.allocate_tensors()
 
 TFLITE_MODEL_PATH = "resources/cropdisease.tflite"
 MODEL_INPUT_SIZE = 224
 INPUT_DIM = (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE)
 
+DEFAULT_MIN_CLASS = 0.8
+DEFAULT_MIN_BOX = 0.6
 
-def efficient_lite(img, detection_threshold):
+# initialize the default number of threads
+NUMBER_OF_THREADS = 2
+# try to optimize for the number of threads on the computer
+cpu_count = multiprocessing.cpu_count()
+NUMBER_OF_THREADS = cpu_count
+# print(type(cpu_count))
+
+
+def efficient_lite(img, detection_threshold, class_threshold):
     # Load the TFLite model
     options = ObjectDetectorOptions(
-        num_threads=1,
+        num_threads=NUMBER_OF_THREADS,
         score_threshold=detection_threshold,
+        class_threshold=class_threshold,
     )
     detector = ObjectDetector(model_path=TFLITE_MODEL_PATH, options=options)
 
@@ -73,100 +94,56 @@ def efficient_lite(img, detection_threshold):
     # image_np, predictions = visualize(img, detections)
 
     # Draw keypoints and edges on input image using classnames predicted by mobilent
-    image_np, predictions = visualize_classnames_with_mobilenet(img, detections)
+    image_np, predictions = visualize_classnames_with_mobilenet(
+        img, detections, class_threshold
+    )
     return image_np, predictions
 
 
-# def crop_and_resize(img, x, y, w, h):
-#     """
-#     This method crops the image at the cordinates given and resizes it to 224,224 which is the dimension the plant disease ai model accepts
-#     Args:
-#         img (_nparray_): image array
-#         x (_int_): x cordinate of the top corner
-#         y (_int_): y cordingate of the top corner
-#         w (_int_): width of the image
-#         h (_int_): height of the image
+def save_images_periodically(img):
+    # # get the current date time
 
-#     Returns:
-#         _nparray_: resized image array
-#     """
-#     cropped_image = img[y : y + h, x : x + w]
+    if not os.path.exists(pictures_folder):
+        os.mkdir(pictures_folder)
 
-#     # resize the image to fit the model input shape
-#     resized_cropped_image = cv2.resize(
-#         cropped_image, INPUT_DIM, interpolation=cv2.INTER_AREA
-#     )
-#     resized_cropped_image = np.expand_dims(resized_cropped_image, axis=0)
-#     resized_cropped_image = resized_cropped_image.astype(np.float32)
-#     resized_cropped_image = resized_cropped_image / 255
-#     return resized_cropped_image
+    cv2.imwrite(f"{pictures_folder}/{uuid.uuid4().hex}.png", img)
 
-
-# def tflite_predict(input_model, data):
-#     """
-
-#     Args:
-#         input_model (_kerasmodel_): _this is the loaded input model_
-#         data (_nparray_): _this is the input image of shape 1,224,244,3_
-
-#     Returns:
-#         _nparray_: _this is the prediction of the network of shape 1,38 which contains the probability for all the 38 classes _
-#     """
-#     input_details = input_model.get_input_details()
-#     # print(input_details)
-#     output_details = input_model.get_output_details()
-#     input_model.set_tensor(0, data)
-#     input_model.invoke()
-#     output_data = input_model.get_tensor(output_details[0]["index"])
-#     return output_data
-
-
-# def detect_leaf(img):
-#     """
-#     This method detects all the leaves in the image by dropping all non green colors and creating a mask on the green objects
-#     Args:
-#         img (_nparray_): _raw image from the camera_
-
-#     Returns:
-#         _nparray_: _mask with non green pixels set to 0,(black) and green pixels set to 255 _
-#         _nparray_: _image with non green pixel set to 0 and green pixel left the way the are(this image would be given to the plant diesase detection ai/neural network)_
-#     """
-#     lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-#     # store the a-channel
-#     a_channel = lab[:, :, 1]
-#     # Automate threshold using Otsu method
-#     th = cv2.threshold(a_channel, 127, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
-#     # Mask the result with the original image
-#     masked = cv2.bitwise_and(img, img, mask=th)
-#     return masked, th
+    # threading.Timer(SAVE_TIME_GAP, save_images_periodically, [img]).start()
 
 
 class Thread(QThread):
     updateFrame = Signal(QImage)
+    updateStatus = Signal(bool)
     prediction_dict = Signal(dict)
 
-    def __init__(self, no_connection_image, parent=None):
+    def __init__(self, no_wifi, parent=None):
         QThread.__init__(self, parent)
         self.trained_file = None
         self.status = True
+        self.no_wifi = no_wifi
+        self.isConnected = True
 
         self.isPredict = False
-        self.minArea = 500
+        self.minClass = DEFAULT_MIN_CLASS
         # if the model is not minProbability sure about a prediction it shouldn't return
         # or draw the prediction
-        self.minProbability = 0.6
+        self.minProbability = DEFAULT_MIN_BOX
         # list of the predcitions gotten from the frames
         self.predictions = []
 
+        # self.save_img_routine = threading.Timer(SAVE_TIME_GAP, save_images_periodically).start()
         self.aircraft = Aircraft()
 
-        self.no_connection_image = no_connection_image.toImage()
+        # self.no_connection_image = no_connection_image.toImage()
 
-    def set_minArea(self, area):
-        self.minArea = area
+    def set_minClass(self, minClass):
+        self.minClass = float(minClass)
 
     def set_minProbability(self, probability):
         self.minProbability = float(probability)
+
+    def set_aircraft(self, aircraft):
+        self.aircraft = aircraft
 
     def start_stop_predictions(self):
         self.isPredict = not self.isPredict
@@ -178,75 +155,60 @@ class Thread(QThread):
         detecting and drawing bounding boxes on the frames
         and emiting each frame to the MainWindow
         """
+        # self.aircraft = Aircraft()
+        counter = 0
         while self.status:
-            # substitute this for the drone camera feed
-            # ret, frame = self.cap.read()
-            frame_read = self.aircraft.get_frame()  # get a frame from the aircraft
-            if frame_read == None:
-                # self.start_stop_predictions()
-                # self.updateFrame.emit(scaled_img)
-                continue
+            # try and get a state. if it throws an error, the drone is no longer connected
 
-            frame = frame_read.frame
+            counter += 1
+            # get a frame from the aircraft
+            try:
+                frame_read = self.aircraft.get_frame()
+                frame = frame_read.frame
+                print("FRAME HAS BEEN READ FROM AIRCRAFT")
+                # this happens when we lost the video feed from the drone
 
-            # this happens when we lost the video feed from the drone
-            if type(frame) is not ndarray:
-                return
+                if self.isPredict:
+                    img_detections, predictions = efficient_lite(
+                        frame, self.minProbability, self.minClass
+                    )
+                    for prediction in predictions:
+                        self.prediction_dict.emit(prediction)
 
-            # copy the frame to avoid making changes to the orignal frames
-            imgContour = frame.copy()
-            img_detections, predictions = efficient_lite(frame, self.minProbability)
-            for prediction in predictions:
-                self.prediction_dict.emit(prediction)
-            # the masked image is the original image without the non green parts
-            # masked, mask = detect_leaf(imgContour)
-            # # find contours on the image
-            # ret, thresh = cv2.threshold(mask, 127, 255, 0)
-            # contours, hierarchy = cv2.findContours(thresh, 1, 2)
-            # if self.isPredict:
-            #     for c in contours:
-            #         prediction_dict = {}
-            #         roi_dict = {}
-            #         peri = cv2.arcLength(c, True)
-            #         approx = cv2.approxPolyDP(c, 0.01 * peri, True)
-            #         x, y, w, h = cv2.boundingRect(c)
-            #         area = cv2.contourArea(c)
-            #         if area > self.minArea:
-            #             resized_cropped_image = crop_and_resize(masked, x, y, w, h)
-            #             preds = tflite_predict(tflite_model, resized_cropped_image)
+                    # 🥸 AKO JOGODO abeg help me comment this line, try the next one make i see wetin go happen
+                    color_frame = cv2.cvtColor(img_detections, cv2.COLOR_BGR2RGB)
 
-            #             predicted_value = preds[0][np.argmax(preds[0])]
-            #             leaf_type = CLASSES[np.argmax(preds[0])]
-            #             prediction_dict["leaf"] = leaf_type
-            #             prediction_dict["probability"] = predicted_value
-            #             self.predictions.extend(prediction_dict)
-            #             if predicted_value > self.minProbability:
-            #                 prob = round(predicted_value, 2)
-            #                 text = f"{leaf_type} {prob}"
-            #                 # draw the rectangles on the frame
-            #                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            #                 cv2.putText(
-            #                     frame,
-            #                     text,
-            #                     (x + (w // 2) - 10, y + (h // 2) - 10),
-            #                     cv2.FONT_HERSHEY_COMPLEX,
-            #                     0.7,
-            #                     (0, 255, 0),
-            #                     1,
-            #                 )
-            #                 self.prediction_dict.emit(prediction_dict)
-            # Reading the image in RGB to display it
-            # 🥸 AKO JOGODO abeg help me comment this line, try the next one make i see wetin go happen
-            color_frame = cv2.cvtColor(img_detections, cv2.COLOR_BGR2RGB)
-            # color_frame = img_detections
-            # Creating and scaling QImage
-            h, w, ch = color_frame.shape
-            img = QImage(color_frame.data, w, h, ch * w, QImage.Format_RGB888)
-            scaled_img = img.scaled(1200, 600, Qt.KeepAspectRatio)
+                    if counter % 30 == 0:
+                        # Thread(save_images_periodically, [frame]).start()
+                        save_images_periodically(frame)
+                        counter = 0
 
-            # Emit signal
-            self.updateFrame.emit(scaled_img)
-        sys.exit(-1)
+                    # Creating and scaling QImage
+                    h, w, ch = color_frame.shape
+                    img = QImage(color_frame.data, w, h, ch * w, QImage.Format_RGB888)
+                    scaled_img = img.scaled(1200, 600, Qt.KeepAspectRatio)
+
+                    # Emit signal
+
+                    self.updateFrame.emit(scaled_img)
+                else:
+                    color_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    h, w, ch = color_frame.shape
+                    img = QImage(color_frame.data, w, h, ch * w, QImage.Format_RGB888)
+                    scaled_img = img.scaled(1200, 600, Qt.KeepAspectRatio)
+                    self.updateFrame.emit(scaled_img)
+                self.updateStatus.emit(True)
+            except:
+                print("Could not connect to the drone")
+                self.aircraft = None
+                self.aircraft = Aircraft()
+                self.isConnected = False
+                # self.aircraft.tello.cap.release()
+                self.updateFrame.emit(self.no_wifi)
+                self.updateStatus.emit(False)
+                break
+
+        # self.exit(-1)
 
 
 class MainWindow(QMainWindow):
@@ -260,8 +222,8 @@ class MainWindow(QMainWindow):
         self.isStart = False
         self.isPredict = False
 
-        self.minArea = 500
-        self.minProbability = 0.6
+        self.minClassification = DEFAULT_MIN_CLASS
+        self.minProbability = DEFAULT_MIN_BOX
 
         # holds the names of all the leafs predicted to be exported to csv
         self.leafs = []
@@ -276,6 +238,7 @@ class MainWindow(QMainWindow):
         self.menu = self.menuBar()
         self.menu_file = self.menu.addMenu("File")
         self.pixmap = QtGui.QPixmap("resources/images/nowifi.jpeg")
+        self.no_wifi = self.pixmap.toImage()
         exit = QAction("Exit", self, triggered=app.quit)
         self.menu_file.addAction(exit)
 
@@ -293,10 +256,11 @@ class MainWindow(QMainWindow):
         self.label.setFixedSize(1070, 600)
 
         # Thread in charge of updating the image
-        self.th = Thread(self, self.pixmap)
+        self.th = Thread(self.no_wifi, parent=self)
         self.th.finished.connect(self.close)
         self.th.updateFrame.connect(self.setImage)
         self.th.prediction_dict.connect(self.updatePredictionList)
+        self.th.updateStatus.connect(self.setDroneStatus)
         # Model group
         self.group_model = QGroupBox("Prediction parameters")
         # self.group_model.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
@@ -309,29 +273,36 @@ class MainWindow(QMainWindow):
         self.areaSlider = QSlider(orientation=Qt.Orientation.Horizontal)
         # this is the threshold slider that controls the minimum probability to be considered by the network
         self.thresholdSlider = QSlider(orientation=Qt.Orientation.Horizontal)
+        self.thresholdSlider1 = QSlider(orientation=Qt.Orientation.Horizontal)
         self.areaSlider.setMinimum(100)
         self.areaSlider.setMaximum(1000)
         self.areaSlider.setTickInterval(50)
+        # threshold slider for bounding box model
         self.thresholdSlider.setMinimum(0)
         self.thresholdSlider.setMaximum(100)
         self.thresholdSlider.setTickInterval(10)
 
-        top_slider_layout.addWidget(QLabel("Area"), 5)
-        self.areaLabel = QLabel(f"{self.minArea}")
-        self.areaMinLabel = QLabel("         100")
-        self.areaMaxLabel = QLabel("1000")
-        top_slider_layout.addWidget(self.areaLabel, 2)
-        top_slider_layout.addWidget(self.areaMinLabel, 5)
-        top_slider_layout.addWidget(self.areaSlider, 83)
-        top_slider_layout.addWidget(self.areaMaxLabel, 5)
+        # threshold slider for classification model
+        self.thresholdSlider1.setMinimum(0)
+        self.thresholdSlider1.setMaximum(100)
+        self.thresholdSlider1.setTickInterval(10)
+
+        top_slider_layout.addWidget(QLabel("Class Threshold"), 5)
+        self.threshold1Label = QLabel(f"{self.minClassification}")
+        self.threshold1MinLabel = QLabel("         0")
+        self.threshold1MaxLabel = QLabel("1")
+        top_slider_layout.addWidget(self.threshold1Label, 2)
+        top_slider_layout.addWidget(self.threshold1MinLabel, 5)
+        top_slider_layout.addWidget(self.thresholdSlider1, 83)
+        top_slider_layout.addWidget(self.threshold1MaxLabel, 5)
 
         self.thresholdLabel = QLabel(f"{self.minProbability}")
         self.thresholdMinLabel = QLabel("         0")
         self.thresholdMaxLabel = QLabel("1")
 
-        self.areaSlider.setValue(self.minArea)
+        self.thresholdSlider1.setValue(self.minClassification)
         self.thresholdSlider.setValue(self.minProbability)
-        bottom_slider_layout.addWidget(QLabel("Threshold"), 2)
+        bottom_slider_layout.addWidget(QLabel("Bounding Box Threshold"), 2)
         bottom_slider_layout.addWidget(self.thresholdLabel, 2)
         bottom_slider_layout.addWidget(self.thresholdMinLabel, 2)
         bottom_slider_layout.addWidget(self.thresholdSlider, 88)
@@ -459,16 +430,16 @@ class MainWindow(QMainWindow):
         self.predict_button.clicked.connect(self.predict_start_stop)
         self.export_to_csv_button.clicked.connect(self.export_to_csv)
         self.thresholdSlider.valueChanged.connect(self.thresholdChange)
-        self.areaSlider.valueChanged.connect(self.areaChange)
+        self.thresholdSlider1.valueChanged.connect(self.threshold1Change)
         self.setNoWifi()
 
         # create a timer
         self.timer = QTimer()
         # set timer timeout callback function
         self.timer.timeout.connect(self.joystick_handler)
-        self.timer.start(20)
+        self.timer.start(5)
 
-        self.start()
+        # self.start()
 
     @Slot()
     def set_model(self, text):
@@ -585,6 +556,15 @@ class MainWindow(QMainWindow):
     def setImage(self, image):
         self.label.setPixmap(QPixmap.fromImage(image))
 
+    @Slot()
+    def setDroneStatus(self, status):
+        if status:
+            self.connect_drone_button.setIcon(self.drone_icon_green)
+            self.start_stop_button.setText("CONNECTED")
+        else:
+            self.connect_drone_button.setIcon(self.drone_icon_gray)
+            self.start_stop_button.setText("DISCONNECTED")
+
     @Slot(dict)
     def updatePredictionList(self, prediction_dict):
         """
@@ -639,17 +619,18 @@ class MainWindow(QMainWindow):
             df.to_csv(filepath)
 
     @Slot()
-    def areaChange(self):
+    def threshold1Change(self):
         """
         This method handles the changes to the areavalue when the area slider is moved
         """
         # area is a value between 500 and 1000
         # get the value
-        self.minArea = self.areaSlider.value()
+        minClass = self.thresholdSlider1.value()
+        self.minClassification = minClass / 100
         # set the value on the label text
-        self.areaLabel.setText(f"{self.minArea}")
+        self.threshold1Label.setText(f"{self.minClassification}")
         # set change the area value on the predicton thread
-        self.th.set_minArea(self.minArea)
+        self.th.set_minClass(self.minClassification)
 
     @Slot()
     def thresholdChange(self):
@@ -694,10 +675,13 @@ class MainWindow(QMainWindow):
         # try connecting to the pad
         # if it succeeeds show
         try:
+            # try reintializing the drone object before connecting
+            # self.th.set_aircraft(Aircraft())
             self.th.aircraft.connect()
             self.connect_drone_button.setIcon(self.drone_icon_green)
             self.start_stop_button.setText("CONNECTED")
             self.drone_connection_success.exec()
+            self.th.start()
         except:
             self.start_stop_button.setText("DISCONNECTED")
             self.drone_connection_failed.exec()
