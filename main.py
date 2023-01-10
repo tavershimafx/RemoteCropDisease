@@ -1,4 +1,3 @@
-from qt_material import apply_stylesheet
 import tensorflow as tf
 import numpy as np
 from numpy import ndarray
@@ -35,6 +34,7 @@ from PySide6.QtWidgets import (
     QSlider,
     QScrollArea,
 )
+from qt_material import apply_stylesheet
 from detection_utils import *
 from viewmodels.aircraft import Aircraft
 import pygame
@@ -56,12 +56,12 @@ S = 60
 # image saving time gap
 SAVE_TIME_GAP = 20
 # load the model
-tflite_model = tf.lite.Interpreter(
-    model_path="RemoteCropDisease/resources/cropdisease.tflite"
-)
+# tflite_model = tf.lite.Interpreter(
+#     model_path="RemoteCropDisease/resources/cropdisease.tflite"
+# )
 
 # tflite_model.resize_tensor_input(0, [-1, 224, 224, 3])
-tflite_model.allocate_tensors()
+#tflite_model.allocate_tensors()
 
 TFLITE_MODEL_PATH = "resources/cropdisease.tflite"
 MODEL_INPUT_SIZE = 224
