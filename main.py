@@ -72,10 +72,16 @@ NUMBER_OF_THREADS = cpu_count
 # print(type(cpu_count))
 
 
-def efficient_lite(img, detection_threshold, class_threshold, isPredict, isCassava):
+def efficient_lite(
+    img,
+    detection_threshold,
+    class_threshold,
+    isPredict,
+    isCassava,
+):
     # Load the TFLite model
     options = ObjectDetectorOptions(
-        num_threads=NUMBER_OF_THREADS,
+        num_threads=1,
         score_threshold=detection_threshold,
         class_threshold=class_threshold,
     )
@@ -89,7 +95,11 @@ def efficient_lite(img, detection_threshold, class_threshold, isPredict, isCassa
 
     # Draw keypoints and edges on input image using classnames predicted by mobilent
     image_np, predictions = visualize_classnames_with_mobilenet(
-        img, detections, class_threshold, isPredict, isCassava
+        img,
+        detections,
+        class_threshold,
+        isPredict,
+        isCassava,
     )
     return image_np, predictions
 
@@ -170,7 +180,7 @@ class Thread(QThread):
                 print("FRAME HAS BEEN READ FROM AIRCRAFT")
                 # this happens when we lost the video feed from the drone
 
-                if self.isFocus:
+                if self.isPredict:
                     img_detections, predictions = efficient_lite(
                         frame,
                         self.minProbability,
@@ -192,12 +202,13 @@ class Thread(QThread):
                     h, w, ch = color_frame.shape
                     img = QImage(color_frame.data, w, h, ch * w, QImage.Format_RGB888)
                     scaled_img = img.scaled(1200, 600, Qt.KeepAspectRatio)
-
+                    # # change self.predict back to false
+                    # if len(predictions) != 0:
+                    #     self.isPredict = False
                     # Emit signal
 
                     self.updateFrame.emit(scaled_img)
-                    # change self.predict back to false
-                    self.isPredict = False
+
                 else:
                     color_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     h, w, ch = color_frame.shape
@@ -205,8 +216,9 @@ class Thread(QThread):
                     scaled_img = img.scaled(1200, 600, Qt.KeepAspectRatio)
                     self.updateFrame.emit(scaled_img)
                 self.updateStatus.emit(True)
-            except:
+            except Exception as e:
                 print("Could not connect to the drone")
+                print(e)
                 self.aircraft = None
                 self.aircraft = Aircraft()
                 self.isConnected = False
@@ -412,7 +424,7 @@ class MainWindow(QMainWindow):
         self.predictions_group.setFixedHeight(410)
 
         start_predict_button_layout = QHBoxLayout()
-        self.start_button_text = "NO FOCUS"
+        self.start_button_text = "FOCUS"
         self.start_stop_button = QPushButton(self.start_button_text)
         self.predict_button = QPushButton("PREDICT")
         start_predict_button_layout.addWidget(self.start_stop_button)
@@ -465,15 +477,23 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def change_crop(self):
-        if self.isCassava:
-            self.cassava_button.setText("NOT CASSAVA")
-            self.isCassava = False
-            # call the function to change the prediction model
+        self.drone_not_connected = CustomDialog(
+            title="Error",
+            content="Drone is not connected. Please make sure you connect to the drone's wifi",
+        )
+        if self.th.aircraft.is_connected:
+            if self.isCassava:
+                self.cassava_button.setText("NOT CASSAVA")
+                self.isCassava = False
+                self.th.set_crop()
+                # call the function to change the prediction model
+            else:
+                self.cassava_button.setText("CASSAVA")
+                self.isCassava = True
+                self.th.set_crop()
+                # call the function to change the prediction model
         else:
-            self.cassava_button.setText("CASSAVA")
-            self.isCassava = True
-            # call the function to change the prediction model
-        pass
+            self.drone_not_connected.exec()
 
     def joystick_handler(self):
         battery = "Battery: {}%".format(self.th.aircraft.get_battery())
@@ -732,13 +752,13 @@ class MainWindow(QMainWindow):
                 self.isFocus = False
                 self.th.set_focus()
                 # set start stop button text to on
-                self.start_stop_button.setText("FOCUS")
+                self.start_stop_button.setText("NO FOCUS")
             else:
                 # start the drone
                 self.isFocus = True
                 self.th.set_focus()
                 # set start stop button text to off
-                self.start_stop_button.setText("NO FOCUS")
+                self.start_stop_button.setText("FOCUS")
         else:
             self.drone_not_connected.exec()
             self.drone_icon_color = QColor(255, 0, 0)

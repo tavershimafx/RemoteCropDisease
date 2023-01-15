@@ -30,6 +30,14 @@ def crop_and_resize(img, x, y, w, h):
     return resized_cropped_image
 
 
+def resize_cassava(img):
+    resized_cropped_image = cv2.resize(img, (512, 512), interpolation=cv2.INTER_AREA)
+    resized_image = np.expand_dims(resized_cropped_image, axis=0)
+    resized_image = resized_cropped_image.astype(np.float32)
+    resized_image = resized_cropped_image / 255
+    return resized_image
+
+
 def tflite_predict(input_model, data):
     input_details = input_model.get_input_details()
     # print(input_details)
@@ -39,6 +47,27 @@ def tflite_predict(input_model, data):
     output_data = input_model.get_tensor(output_details[0]["index"])
     predicted_value = output_data[0][np.argmax(output_data[0])]
     leaf_type = CLASSES[np.argmax(output_data[0])]
+    return leaf_type, predicted_value
+
+
+cassava_disease_map = {
+    "0": "Cassava Bacterial Blight (CBB)",
+    "1": "Cassava Brown Streak Disease (CBSD)",
+    "2": "Cassava Green Mottle (CGM)",
+    "3": "Cassava Mosaic Disease (CMD)",
+    "4": "Healthy",
+}
+
+
+def cassava_tflite_predict(input_model, data):
+    input_details = input_model.get_input_details()
+    # print(input_details)
+    output_details = input_model.get_output_details()
+    input_model.set_tensor(0, data)
+    input_model.invoke()
+    output_data = input_model.get_tensor(output_details[0]["index"])
+    predicted_value = output_data[0][np.argmax(output_data[0])]
+    leaf_type = cassava_disease_map[np.argmax(output_data[0])]
     return leaf_type, predicted_value
 
 
@@ -73,6 +102,12 @@ tflite_model = tf.lite.Interpreter(
 
 # tflite_model.resize_tensor_input(0, [-1, 224, 224, 3])
 tflite_model.allocate_tensors()
+
+# load cassava prediction model
+cassava_tflite_model = tf.lite.Interpreter(
+    model_path="resources/cassava_model.tflite", num_threads=1
+)
+cassava_tflite_model.allocate_tensors()
 
 
 class ObjectDetectorOptions(NamedTuple):
@@ -473,14 +508,20 @@ def visualize_classnames_with_mobilenet(
         # if not has_colors:
         #     continue
         if isPredict:
-            resized_image = crop_and_resize(image, x, y, w, h)
-            label, score = tflite_predict(tflite_model, resized_image)
+            if isCassava == False:
+                resized_image = crop_and_resize(image, x, y, w, h)
+                label, score = tflite_predict(tflite_model, resized_image)
+            else:
+                resized_image = resize_cassava(image)
+                label, score = cassava_tflite_predict(cassava_tflite_model, image)
+
         # check if the probability exceeds a certain threshold before drawing
         # if score > class_threshold:
         # Draw bounding_box
         start_point = detection.bounding_box.left, detection.bounding_box.top
         end_point = detection.bounding_box.right, detection.bounding_box.bottom
-        cv2.rectangle(image, start_point, end_point, _TEXT_COLOR, 3)
+        if not isCassava:
+            cv2.rectangle(image, start_point, end_point, _TEXT_COLOR, 3)
 
         print(f"x{x} y{y} w{w} h{h}")
 
