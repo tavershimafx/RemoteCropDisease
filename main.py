@@ -71,13 +71,54 @@ cpu_count = multiprocessing.cpu_count()
 NUMBER_OF_THREADS = cpu_count
 # print(type(cpu_count))
 
+# load cassava prediction model
+cassava_tflite_model = tf.lite.Interpreter(
+    model_path="resources/cassava_model.tflite", num_threads=1
+)
+cassava_tflite_model.allocate_tensors()
+
+cassava_disease_map = {
+    "0": "Cassava Bacterial Blight (CBB)",
+    "1": "Cassava Brown Streak Disease (CBSD)",
+    "2": "Cassava Green Mottle (CGM)",
+    "3": "Cassava Mosaic Disease (CMD)",
+    "4": "Healthy",
+}
+
+def resize_cassava(img):
+    resized_image = cv2.resize(img, (512, 512), interpolation=cv2.INTER_AREA)
+    resized_image = np.expand_dims(resized_image, axis=0)
+    resized_image = resized_image.astype(np.float32)
+    resized_image = resized_image / 255
+    return resized_image
+
+def cassava_tflite_predict(input_model, data):
+    input_details = input_model.get_input_details()
+    # print(input_details)
+    output_details = input_model.get_output_details()
+    input_model.set_tensor(0, data)
+    input_model.invoke()
+    output_data = input_model.get_tensor(output_details[0]["index"])
+    predicted_value = output_data[0][np.argmax(output_data[0])]
+    leaf_type = cassava_disease_map[str(np.argmax(output_data[0]))]
+    return leaf_type, predicted_value
+
+def classify_cassava(img):
+    resized_image = resize_cassava(img)
+    prediction,score = cassava_tflite_predict(cassava_tflite_model,resized_image)
+    predictions = []
+    prediction_dict = {}
+    prediction_dict['leaf'] = prediction
+    prediction_dict['probability'] = score
+    predictions.append(prediction_dict)
+    return img, predictions
+
 
 def efficient_lite(
     img,
     detection_threshold,
     class_threshold,
     isPredict,
-    isCassava,
 ):
     # Load the TFLite model
     options = ObjectDetectorOptions(
@@ -97,9 +138,7 @@ def efficient_lite(
     image_np, predictions = visualize_classnames_with_mobilenet(
         img,
         detections,
-        class_threshold,
         isPredict,
-        isCassava,
     )
     return image_np, predictions
 
@@ -181,22 +220,25 @@ class Thread(QThread):
                 # this happens when we lost the video feed from the drone
 
                 if self.isPredict:
-                    img_detections, predictions = efficient_lite(
+                    if not self.isCassava:
+                        img_detections, predictions = efficient_lite(
                         frame,
                         self.minProbability,
                         self.minClass,
                         self.isPredict,
-                        self.isCassava,
-                    )
+                       
+                        )
+                    else:
+                        img_detections,predictions = classify_cassava(frame)
                     for prediction in predictions:
                         self.prediction_dict.emit(prediction)
 
                     # 🥸 AKO JOGODO abeg help me comment this line, try the next one make i see wetin go happen
                     color_frame = cv2.cvtColor(img_detections, cv2.COLOR_BGR2RGB)
 
-                    # if counter % 30 == 0:
-                    # Thread(save_images_periodically, [frame]).start()
-                    save_images_periodically(frame)
+                    if counter % 30 == 0:
+                        # Thread(save_images_periodically, [frame]).start()
+                        save_images_periodically(frame)
 
                     # Creating and scaling QImage
                     h, w, ch = color_frame.shape
