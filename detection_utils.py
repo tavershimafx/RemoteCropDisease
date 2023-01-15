@@ -444,7 +444,11 @@ def visualize(
 
 
 def visualize_classnames_with_mobilenet(
-    image: np.ndarray, detections: List[Detection], class_threshold: int
+    image: np.ndarray,
+    detections: List[Detection],
+    class_threshold: int,
+    isPredict: bool,
+    isCassava: bool,
 ) -> np.ndarray:
     """Draws bounding boxes on the input image and return it.
     Args:
@@ -468,32 +472,34 @@ def visualize_classnames_with_mobilenet(
         # has_colors = detect_green_and_area_threshold_2(ci, 500)
         # if not has_colors:
         #     continue
-        resized_image = crop_and_resize(image, x, y, w, h)
-        label, score = tflite_predict(tflite_model, resized_image)
+        if isPredict:
+            resized_image = crop_and_resize(image, x, y, w, h)
+            label, score = tflite_predict(tflite_model, resized_image)
         # check if the probability exceeds a certain threshold before drawing
-        if score > class_threshold:
-            # Draw bounding_box
-            start_point = detection.bounding_box.left, detection.bounding_box.top
-            end_point = detection.bounding_box.right, detection.bounding_box.bottom
-            cv2.rectangle(image, start_point, end_point, _TEXT_COLOR, 3)
+        # if score > class_threshold:
+        # Draw bounding_box
+        start_point = detection.bounding_box.left, detection.bounding_box.top
+        end_point = detection.bounding_box.right, detection.bounding_box.bottom
+        cv2.rectangle(image, start_point, end_point, _TEXT_COLOR, 3)
 
-            print(f"x{x} y{y} w{w} h{h}")
+        print(f"x{x} y{y} w{w} h{h}")
 
-            print(start_point)
-            # Draw label and score
-            # category = detection.categories[0]
-            # class_name = category.label
-            # probability = round(category.score, 2)
-            if label.endswith("healthy"):
-                class_name = "healthy"
-            else:
-                class_name = "infected"
-            # class_name = if 'healthy' in label
+        print(start_point)
+        # Draw label and score
+        # category = detection.categories[0]
+        # class_name = category.label
+        # probability = round(category.score, 2)
+        # if label.endswith("healthy"):
+        #     class_name = "healthy"
+        # else:
+        #     class_name = "infected"
+        # class_name = if 'healthy' in label
+        if isPredict:
             probability = score
-            prediction_dict["leaf"] = class_name
+            prediction_dict["leaf"] = label
             prediction_dict["probability"] = probability
             predictions.append(prediction_dict)
-            result_text = class_name + " (" + str(probability) + ")"
+            result_text = label + " (" + str(probability) + ")"
             text_location = (
                 _MARGIN + detection.bounding_box.left,
                 _MARGIN + _ROW_SIZE + detection.bounding_box.top,

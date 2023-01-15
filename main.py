@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QGroupBox,
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -55,13 +56,6 @@ S = 60
 
 # image saving time gap
 SAVE_TIME_GAP = 20
-# load the model
-tflite_model = tf.lite.Interpreter(
-    model_path="RemoteCropDisease/resources/cropdisease.tflite"
-)
-
-# tflite_model.resize_tensor_input(0, [-1, 224, 224, 3])
-tflite_model.allocate_tensors()
 
 TFLITE_MODEL_PATH = "resources/cropdisease.tflite"
 MODEL_INPUT_SIZE = 224
@@ -78,7 +72,7 @@ NUMBER_OF_THREADS = cpu_count
 # print(type(cpu_count))
 
 
-def efficient_lite(img, detection_threshold, class_threshold):
+def efficient_lite(img, detection_threshold, class_threshold, isPredict, isCassava):
     # Load the TFLite model
     options = ObjectDetectorOptions(
         num_threads=NUMBER_OF_THREADS,
@@ -95,7 +89,7 @@ def efficient_lite(img, detection_threshold, class_threshold):
 
     # Draw keypoints and edges on input image using classnames predicted by mobilent
     image_np, predictions = visualize_classnames_with_mobilenet(
-        img, detections, class_threshold
+        img, detections, class_threshold, isPredict, isCassava
     )
     return image_np, predictions
 
@@ -124,6 +118,8 @@ class Thread(QThread):
         self.isConnected = True
 
         self.isPredict = False
+        self.isFocus = False
+        self.isCassava = False
         self.minClass = DEFAULT_MIN_CLASS
         # if the model is not minProbability sure about a prediction it shouldn't return
         # or draw the prediction
@@ -145,8 +141,14 @@ class Thread(QThread):
     def set_aircraft(self, aircraft):
         self.aircraft = aircraft
 
+    def set_crop(self):
+        self.isCassava = not self.isCassava
+
     def start_stop_predictions(self):
         self.isPredict = not self.isPredict
+
+    def set_focus(self):
+        self.isFocus = not self.isFocus
 
     def run(self):
         """
@@ -168,9 +170,13 @@ class Thread(QThread):
                 print("FRAME HAS BEEN READ FROM AIRCRAFT")
                 # this happens when we lost the video feed from the drone
 
-                if self.isPredict:
+                if self.isFocus:
                     img_detections, predictions = efficient_lite(
-                        frame, self.minProbability, self.minClass
+                        frame,
+                        self.minProbability,
+                        self.minClass,
+                        self.isPredict,
+                        self.isCassava,
                     )
                     for prediction in predictions:
                         self.prediction_dict.emit(prediction)
@@ -178,10 +184,9 @@ class Thread(QThread):
                     # 🥸 AKO JOGODO abeg help me comment this line, try the next one make i see wetin go happen
                     color_frame = cv2.cvtColor(img_detections, cv2.COLOR_BGR2RGB)
 
-                    if counter % 30 == 0:
-                        # Thread(save_images_periodically, [frame]).start()
-                        save_images_periodically(frame)
-                        counter = 0
+                    # if counter % 30 == 0:
+                    # Thread(save_images_periodically, [frame]).start()
+                    save_images_periodically(frame)
 
                     # Creating and scaling QImage
                     h, w, ch = color_frame.shape
@@ -191,6 +196,8 @@ class Thread(QThread):
                     # Emit signal
 
                     self.updateFrame.emit(scaled_img)
+                    # change self.predict back to false
+                    self.isPredict = False
                 else:
                     color_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     h, w, ch = color_frame.shape
@@ -221,6 +228,8 @@ class MainWindow(QMainWindow):
         # Drone control variables
         self.isStart = False
         self.isPredict = False
+        self.isFocus = False
+        self.isCassava = False
 
         self.minClassification = DEFAULT_MIN_CLASS
         self.minProbability = DEFAULT_MIN_BOX
@@ -308,7 +317,7 @@ class MainWindow(QMainWindow):
         bottom_slider_layout.addWidget(self.thresholdSlider, 88)
         bottom_slider_layout.addWidget(self.thresholdMaxLabel, 5)
 
-        model_layout.addLayout(top_slider_layout, 1)
+        # model_layout.addLayout(top_slider_layout, 1)
         model_layout.addLayout(bottom_slider_layout, 1)
         self.group_model.setLayout(model_layout)
 
@@ -383,6 +392,10 @@ class MainWindow(QMainWindow):
         velocity_altitude_group_layout.addWidget(self.battery_percentage)
         self.velocity_altitude_group.setLayout(velocity_altitude_group_layout)
         self.velocity_altitude_group.setFixedHeight(150)
+        # check box button for cassava
+        self.cassava_button = QPushButton()
+        self.cassava_button.setText("NOT CASSAVA")
+        # self.cassava_button.setCheckState(Qt.CheckState.Checked)
 
         self.predictions_group = QGroupBox("Top Predictions")
         self.export_to_csv_button = QPushButton("Export to CSV")
@@ -399,7 +412,7 @@ class MainWindow(QMainWindow):
         self.predictions_group.setFixedHeight(410)
 
         start_predict_button_layout = QHBoxLayout()
-        self.start_button_text = "ON"
+        self.start_button_text = "NO FOCUS"
         self.start_stop_button = QPushButton(self.start_button_text)
         self.predict_button = QPushButton("PREDICT")
         start_predict_button_layout.addWidget(self.start_stop_button)
@@ -409,7 +422,9 @@ class MainWindow(QMainWindow):
         left_layout.addLayout(buttons_layout)
         left_layout.addWidget(self.velocity_altitude_group, 1)
         # left_layout.addWidget(self.altitude_group, 1)
+        left_layout.addWidget(self.cassava_button, 1)
         left_layout.addWidget(self.predictions_group, 1)
+
         left_layout.addLayout(start_predict_button_layout)
 
         # Main Layout
@@ -426,11 +441,14 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(widget)
 
         # no need for manual connection again
+        # connect all buttons here
         self.connect_drone_button.clicked.connect(self.connect_drone)
         self.predict_button.clicked.connect(self.predict_start_stop)
         self.export_to_csv_button.clicked.connect(self.export_to_csv)
         self.thresholdSlider.valueChanged.connect(self.thresholdChange)
         self.thresholdSlider1.valueChanged.connect(self.threshold1Change)
+        self.cassava_button.clicked.connect(self.change_crop)
+        self.start_stop_button.clicked.connect(self.focus)
         self.setNoWifi()
 
         # create a timer
@@ -444,6 +462,18 @@ class MainWindow(QMainWindow):
     @Slot()
     def set_model(self, text):
         self.th.set_file(text)
+
+    @Slot()
+    def change_crop(self):
+        if self.isCassava:
+            self.cassava_button.setText("NOT CASSAVA")
+            self.isCassava = False
+            # call the function to change the prediction model
+        else:
+            self.cassava_button.setText("CASSAVA")
+            self.isCassava = True
+            # call the function to change the prediction model
+        pass
 
     def joystick_handler(self):
         battery = "Battery: {}%".format(self.th.aircraft.get_battery())
@@ -560,10 +590,10 @@ class MainWindow(QMainWindow):
     def setDroneStatus(self, status):
         if status:
             self.connect_drone_button.setIcon(self.drone_icon_green)
-            self.start_stop_button.setText("CONNECTED")
+            # self.start_stop_button.setText("CONNECTED")
         else:
             self.connect_drone_button.setIcon(self.drone_icon_gray)
-            self.start_stop_button.setText("DISCONNECTED")
+            # self.start_stop_button.setText("DISCONNECTED")
 
     @Slot(dict)
     def updatePredictionList(self, prediction_dict):
@@ -679,12 +709,39 @@ class MainWindow(QMainWindow):
             # self.th.set_aircraft(Aircraft())
             self.th.aircraft.connect()
             self.connect_drone_button.setIcon(self.drone_icon_green)
-            self.start_stop_button.setText("CONNECTED")
+            # self.start_stop_button.setText("CONNECTED")
             self.drone_connection_success.exec()
             self.th.start()
         except:
-            self.start_stop_button.setText("DISCONNECTED")
+            # self.start_stop_button.setText("DISCONNECTED")
             self.drone_connection_failed.exec()
+
+    @Slot()
+    def focus(self):
+        """
+        This method starts or stops the predictions
+        """
+        self.drone_not_connected = CustomDialog(
+            title="Error",
+            content="Drone is not connected. Please make sure you connect to the drone's wifi",
+        )
+        if self.th.aircraft.is_connected:  # .isDroneConnected:
+            # start predictions
+            if self.isFocus:
+                # stop predictions
+                self.isFocus = False
+                self.th.set_focus()
+                # set start stop button text to on
+                self.start_stop_button.setText("FOCUS")
+            else:
+                # start the drone
+                self.isFocus = True
+                self.th.set_focus()
+                # set start stop button text to off
+                self.start_stop_button.setText("NO FOCUS")
+        else:
+            self.drone_not_connected.exec()
+            self.drone_icon_color = QColor(255, 0, 0)
 
     @Slot()
     def predict_start_stop(self):
