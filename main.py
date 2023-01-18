@@ -231,12 +231,13 @@ class Thread(QThread):
                     else:
                         img_detections,predictions = classify_cassava(frame)
                     for prediction in predictions:
-                        self.prediction_dict.emit(prediction)
+                        if self.isFocus:
+                            self.prediction_dict.emit(prediction)
 
                     # 🥸 AKO JOGODO abeg help me comment this line, try the next one make i see wetin go happen
                     color_frame = cv2.cvtColor(img_detections, cv2.COLOR_BGR2RGB)
 
-                    if counter % 30 == 0:
+                    if self.isFocus:
                         # Thread(save_images_periodically, [frame]).start()
                         save_images_periodically(frame)
 
@@ -248,7 +249,7 @@ class Thread(QThread):
                     # if len(predictions) != 0:
                     #     self.isPredict = False
                     # Emit signal
-
+                    self.isFocus = False
                     self.updateFrame.emit(scaled_img)
 
                 else:
@@ -466,7 +467,7 @@ class MainWindow(QMainWindow):
         self.predictions_group.setFixedHeight(410)
 
         start_predict_button_layout = QHBoxLayout()
-        self.start_button_text = "FOCUS"
+        self.start_button_text = "SAVE"
         self.start_stop_button = QPushButton(self.start_button_text)
         self.predict_button = QPushButton("PREDICT")
         start_predict_button_layout.addWidget(self.start_stop_button)
@@ -794,13 +795,13 @@ class MainWindow(QMainWindow):
                 self.isFocus = False
                 self.th.set_focus()
                 # set start stop button text to on
-                self.start_stop_button.setText("NO FOCUS")
+                # self.start_stop_button.setText("NO FOCUS")
             else:
                 # start the drone
                 self.isFocus = True
                 self.th.set_focus()
                 # set start stop button text to off
-                self.start_stop_button.setText("FOCUS")
+                # self.start_stop_button.setText("FOCUS")
         else:
             self.drone_not_connected.exec()
             self.drone_icon_color = QColor(255, 0, 0)
