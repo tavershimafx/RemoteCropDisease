@@ -85,12 +85,14 @@ cassava_disease_map = {
     "4": "Healthy",
 }
 
+
 def resize_cassava(img):
     resized_image = cv2.resize(img, (512, 512), interpolation=cv2.INTER_AREA)
     resized_image = np.expand_dims(resized_image, axis=0)
     resized_image = resized_image.astype(np.float32)
     resized_image = resized_image / 255
     return resized_image
+
 
 def cassava_tflite_predict(input_model, data):
     input_details = input_model.get_input_details()
@@ -103,23 +105,19 @@ def cassava_tflite_predict(input_model, data):
     leaf_type = cassava_disease_map[str(np.argmax(output_data[0]))]
     return leaf_type, predicted_value
 
+
 def classify_cassava(img):
     resized_image = resize_cassava(img)
-    prediction,score = cassava_tflite_predict(cassava_tflite_model,resized_image)
+    prediction, score = cassava_tflite_predict(cassava_tflite_model, resized_image)
     predictions = []
     prediction_dict = {}
-    prediction_dict['leaf'] = prediction
-    prediction_dict['probability'] = score
+    prediction_dict["leaf"] = prediction
+    prediction_dict["probability"] = score
     predictions.append(prediction_dict)
     return img, predictions
 
 
-def efficient_lite(
-    img,
-    detection_threshold,
-    class_threshold,
-    isPredict,
-):
+def efficient_lite(img, detection_threshold, class_threshold, isPredict, cropName):
     # Load the TFLite model
     options = ObjectDetectorOptions(
         num_threads=1,
@@ -136,9 +134,7 @@ def efficient_lite(
 
     # Draw keypoints and edges on input image using classnames predicted by mobilent
     image_np, predictions = visualize_classnames_with_mobilenet(
-        img,
-        detections,
-        isPredict,
+        img, detections, isPredict, cropName
     )
     return image_np, predictions
 
@@ -159,7 +155,7 @@ class Thread(QThread):
     updateStatus = Signal(bool)
     prediction_dict = Signal(dict)
 
-    def __init__(self, no_wifi, parent=None):
+    def __init__(self, no_wifi, cropName, parent=None):
         QThread.__init__(self, parent)
         self.trained_file = None
         self.status = True
@@ -178,6 +174,10 @@ class Thread(QThread):
 
         # self.save_img_routine = threading.Timer(SAVE_TIME_GAP, save_images_periodically).start()
         self.aircraft = Aircraft()
+
+        # attribute to store the crop name
+        # set it to tomato by default
+        self.cropName = cropName
 
         # self.no_connection_image = no_connection_image.toImage()
 
@@ -198,6 +198,9 @@ class Thread(QThread):
 
     def set_focus(self):
         self.isFocus = not self.isFocus
+
+    def set_crop_name(self, text):
+        self.cropName = text
 
     def run(self):
         """
@@ -220,16 +223,16 @@ class Thread(QThread):
                 # this happens when we lost the video feed from the drone
 
                 if self.isPredict:
-                    if not self.isCassava:
+                    if not self.cropName == "Cassava":
                         img_detections, predictions = efficient_lite(
-                        frame,
-                        self.minProbability,
-                        self.minClass,
-                        self.isPredict,
-                       
+                            frame,
+                            self.minProbability,
+                            self.minClass,
+                            self.isPredict,
+                            self.cropName,
                         )
                     else:
-                        img_detections,predictions = classify_cassava(frame)
+                        img_detections, predictions = classify_cassava(frame)
                     for prediction in predictions:
                         if self.isFocus:
                             self.prediction_dict.emit(prediction)
@@ -289,6 +292,7 @@ class MainWindow(QMainWindow):
         self.minClassification = DEFAULT_MIN_CLASS
         self.minProbability = DEFAULT_MIN_BOX
 
+        self.cropName = "Cassava"
         # holds the names of all the leafs predicted to be exported to csv
         self.leafs = []
         # holds the probabilities of the predictions to be exported to csv
@@ -320,7 +324,7 @@ class MainWindow(QMainWindow):
         self.label.setFixedSize(1070, 600)
 
         # Thread in charge of updating the image
-        self.th = Thread(self.no_wifi, parent=self)
+        self.th = Thread(self.no_wifi, self.cropName, parent=self)
         self.th.finished.connect(self.close)
         self.th.updateFrame.connect(self.setImage)
         self.th.prediction_dict.connect(self.updatePredictionList)
@@ -450,6 +454,11 @@ class MainWindow(QMainWindow):
         # check box button for cassava
         self.cassava_button = QPushButton()
         self.cassava_button.setText("NOT CASSAVA")
+
+        # Combo box for selecting the disease detection neural network
+        self.combobox = QComboBox()
+        self.combobox.addItems(["Tomato", "Maize", "Cassava", "Potato"])
+
         # self.cassava_button.setCheckState(Qt.CheckState.Checked)
 
         self.predictions_group = QGroupBox("Top Predictions")
@@ -477,7 +486,7 @@ class MainWindow(QMainWindow):
         left_layout.addLayout(buttons_layout)
         left_layout.addWidget(self.velocity_altitude_group, 1)
         # left_layout.addWidget(self.altitude_group, 1)
-        left_layout.addWidget(self.cassava_button, 1)
+        left_layout.addWidget(self.combobox, 1)
         left_layout.addWidget(self.predictions_group, 1)
 
         left_layout.addLayout(start_predict_button_layout)
@@ -504,6 +513,7 @@ class MainWindow(QMainWindow):
         self.thresholdSlider1.valueChanged.connect(self.threshold1Change)
         self.cassava_button.clicked.connect(self.change_crop)
         self.start_stop_button.clicked.connect(self.focus)
+        self.combobox.currentTextChanged.connect(self.change_crop_name)
         self.setNoWifi()
 
         # create a timer
@@ -535,6 +545,19 @@ class MainWindow(QMainWindow):
                 self.isCassava = True
                 self.th.set_crop()
                 # call the function to change the prediction model
+        else:
+            self.drone_not_connected.exec()
+
+    @Slot()
+    def change_crop_name(self, text):
+        # call the function to change crop in the thread class
+        self.drone_not_connected = CustomDialog(
+            title="Error",
+            content="Drone is not connected. Please make sure you connect to the drone's wifi",
+        )
+        if self.th.aircraft.is_connected:
+            self.th.set_crop_name(text)
+            print(f"CROP CHANGED TO {text}")
         else:
             self.drone_not_connected.exec()
 

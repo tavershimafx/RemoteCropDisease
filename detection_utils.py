@@ -9,7 +9,7 @@ from tflite_support import metadata
 import cv2
 import tensorflow as tf
 import numpy as np
-from constants import CLASSES
+from constants import CLASSES, TOMATO_CLASSES, MAIZE_CLASSES
 
 Interpreter = tf.lite.Interpreter
 load_delegate = tf.lite.experimental.load_delegate
@@ -21,16 +21,11 @@ def crop_and_resize(img, x, y, w, h):
     cropped_image = img[y:h, x:w]
     # resize the image to fit the model input shape
     print(cropped_image.shape)
-    resized_cropped_image = cv2.resize(
-        cropped_image, INPUT_DIM, interpolation=cv2.INTER_AREA
-    )
+    resized_cropped_image = cropped_image
     resized_cropped_image = np.expand_dims(resized_cropped_image, axis=0)
     resized_cropped_image = resized_cropped_image.astype(np.float32)
     resized_cropped_image = resized_cropped_image / 255
     return resized_cropped_image
-
-
-
 
 
 def tflite_predict(input_model, data):
@@ -45,7 +40,28 @@ def tflite_predict(input_model, data):
     return leaf_type, predicted_value
 
 
+def tomato_tflite_predict(input_model, data):
+    input_details = input_model.get_input_details()
+    # print(input_details)
+    output_details = input_model.get_output_details()
+    input_model.set_tensor(0, data)
+    input_model.invoke()
+    output_data = input_model.get_tensor(output_details[0]["index"])
+    predicted_value = output_data[0][np.argmax(output_data[0])]
+    leaf_type = TOMATO_CLASSES[np.argmax(output_data[0])]
+    return leaf_type, predicted_value
 
+
+def maize_tflite_predict(input_model, data):
+    input_details = input_model.get_input_details()
+    # print(input_details)
+    output_details = input_model.get_output_details()
+    input_model.set_tensor(0, data)
+    input_model.invoke()
+    output_data = input_model.get_tensor(output_details[0]["index"])
+    predicted_value = output_data[0][np.argmax(output_data[0])]
+    leaf_type = MAIZE_CLASSES[np.argmax(output_data[0])]
+    return leaf_type, predicted_value
 
 
 def detect_green_and_area_threshold_2(img, threshold):
@@ -72,6 +88,8 @@ def detect_green_and_area_threshold_2(img, threshold):
         return False
 
 
+# LOAD ALL THE NECESSARY MODEL HERE
+
 # load the model
 tflite_model = tf.lite.Interpreter(
     model_path="resources/plant_diseas_model.tflite", num_threads=1
@@ -80,7 +98,15 @@ tflite_model = tf.lite.Interpreter(
 # tflite_model.resize_tensor_input(0, [-1, 224, 224, 3])
 tflite_model.allocate_tensors()
 
+# load the tomato model
+tomato_tflite_model = tf.lite.Interpreter(
+    "resources/tomato_model.tflite", num_threads=1
+)
+tomato_tflite_model.allocate_tensors()
 
+# load the maize model
+maize_tflite_model = tf.lite.Interpreter("resources/maize_model.tflite", num_threads=1)
+maize_tflite_model.allocate_tensors()
 
 
 class ObjectDetectorOptions(NamedTuple):
@@ -452,9 +478,7 @@ def visualize(
 
 
 def visualize_classnames_with_mobilenet(
-    image: np.ndarray,
-    detections: List[Detection],
-    isPredict: bool,
+    image: np.ndarray, detections: List[Detection], isPredict: bool, cropName: str
 ) -> np.ndarray:
     """Draws bounding boxes on the input image and return it.
     Args:
@@ -479,10 +503,14 @@ def visualize_classnames_with_mobilenet(
         # if not has_colors:
         #     continue
         if isPredict:
-        
+
             resized_image = crop_and_resize(image, x, y, w, h)
-            label, score = tflite_predict(tflite_model, resized_image)
-        
+            if cropName == "Tomato":
+                label, score = tomato_tflite_predict(tomato_tflite_model, resized_image)
+            elif cropName == "Maize":
+                label, score = maize_tflite_predict(maize_tflite_model, resized_image)
+            else:
+                label, score = tflite_predict(tflite_model, resized_image)
 
         # check if the probability exceeds a certain threshold before drawing
         # if score > class_threshold:
