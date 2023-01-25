@@ -47,7 +47,7 @@ desktop = os.path.expanduser("~/Desktop")
 # get the current date time
 current_dateTime = datetime.now()
 
-base_folder = f'{desktop}/leaf Disease Detection/predictions'
+base_folder = f"{desktop}/leaf Disease Detection/predictions"
 
 filepath = Path(f"{base_folder}/pictures")
 filepath.parent.mkdir(parents=True, exist_ok=True)
@@ -250,7 +250,9 @@ class Thread(QThread):
 
                         # Creating and scaling QImage
                         h, w, ch = color_frame.shape
-                        img = QImage(color_frame.data, w, h, ch * w, QImage.Format_RGB888)
+                        img = QImage(
+                            color_frame.data, w, h, ch * w, QImage.Format_RGB888
+                        )
                         scaled_img = img.scaled(1200, 600, Qt.KeepAspectRatio)
                         # # change self.predict back to false
                         # if len(predictions) != 0:
@@ -266,7 +268,9 @@ class Thread(QThread):
                     else:
                         color_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                         h, w, ch = color_frame.shape
-                        img = QImage(color_frame.data, w, h, ch * w, QImage.Format_RGB888)
+                        img = QImage(
+                            color_frame.data, w, h, ch * w, QImage.Format_RGB888
+                        )
                         scaled_img = img.scaled(1200, 600, Qt.KeepAspectRatio)
                         self.updateFrame.emit(scaled_img)
 
@@ -280,11 +284,11 @@ class Thread(QThread):
                     print(e)
                     self.aircraft = None
                     self.isConnected = False
-                    
+
                     self.updateFrame.emit(self.no_wifi)
                     self.updateStatus.emit(False)
                     # break
-            
+
             else:
                 self.updateFrame.emit(self.no_wifi)
                 self.updateStatus.emit(False)
@@ -473,7 +477,7 @@ class MainWindow(QMainWindow):
 
         # Combo box for selecting the disease detection neural network
         self.combobox = QComboBox()
-        self.combobox.addItems(["Maize", "Tomato", "Cassava", "Potato"])
+        self.combobox.addItems(["Maize", "Tomato", "Pepper"])
 
         # self.cassava_button.setCheckState(Qt.CheckState.Checked)
 
@@ -738,15 +742,14 @@ class MainWindow(QMainWindow):
             # data
             data = {"leaf": self.leafs, "probability": self.probabilities}
             df = pd.DataFrame(data)
-           
-            csv_path = os.path.join(base_folder,'results')
+
+            csv_path = os.path.join(base_folder, "results")
             if not os.path.exists(csv_path):
                 os.makedirs(csv_path, exist_ok=True)
 
-
-            csvfile_name =os.path.join(csv_path, f'{uuid.uuid4().hex}.csv')
+            csvfile_name = os.path.join(csv_path, f"{uuid.uuid4().hex}.csv")
             df.to_csv(csvfile_name)
-            print('File written to csv')
+            print("File written to csv")
 
     @Slot()
     def threshold1Change(self):
