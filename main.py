@@ -223,7 +223,7 @@ class Thread(QThread):
                 try:
                     frame_read = self.aircraft.get_frame()
                     frame = frame_read.frame
-                    print("FRAME HAS BEEN READ FROM AIRCRAFT")
+                    #print("FRAME HAS BEEN READ FROM AIRCRAFT")
                     # this happens when we lost the video feed from the drone
 
                     if self.isPredict:
@@ -540,7 +540,7 @@ class MainWindow(QMainWindow):
         self.timer = QTimer()
         # set timer timeout callback function
         self.timer.timeout.connect(self.joystick_handler)
-        self.timer.start(5)
+        self.timer.start(50)
 
         # self.start()
 
