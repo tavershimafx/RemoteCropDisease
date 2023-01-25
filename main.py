@@ -46,10 +46,12 @@ import uuid
 desktop = os.path.expanduser("~/Desktop")
 # get the current date time
 current_dateTime = datetime.now()
-filepath = Path(f"{desktop}/leaf Disease Detection/predictions/pictures")
+
+base_folder = f'{desktop}/leaf Disease Detection/predictions'
+
+filepath = Path(f"{base_folder}/pictures")
 filepath.parent.mkdir(parents=True, exist_ok=True)
-pictures_folder = f"{desktop}/leaf Disease Detection/predictions/pictures"
-# qapp = QtWidgets.qApp
+pictures_folder = f"{base_folder}/pictures"
 
 # Speed of the drone
 S = 60
@@ -61,8 +63,8 @@ TFLITE_MODEL_PATH = "resources/cropdisease.tflite"
 MODEL_INPUT_SIZE = 224
 INPUT_DIM = (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE)
 
-DEFAULT_MIN_CLASS = 0.8
-DEFAULT_MIN_BOX = 0.6
+DEFAULT_MIN_CLASS = 0.4
+DEFAULT_MIN_BOX = 0.4
 
 # initialize the default number of threads
 NUMBER_OF_THREADS = 2
@@ -216,63 +218,77 @@ class Thread(QThread):
 
             counter += 1
             # get a frame from the aircraft
-            try:
-                frame_read = self.aircraft.get_frame()
-                frame = frame_read.frame
-                print("FRAME HAS BEEN READ FROM AIRCRAFT")
-                # this happens when we lost the video feed from the drone
+            if not (self.aircraft is None or self.aircraft.is_connected == False):
 
-                if self.isPredict:
-                    if not self.cropName == "Cassava":
-                        img_detections, predictions = efficient_lite(
-                            frame,
-                            self.minProbability,
-                            self.minClass,
-                            self.isPredict,
-                            self.cropName,
-                        )
-                    else:
-                        img_detections, predictions = classify_cassava(frame)
-                    for prediction in predictions:
+                try:
+                    frame_read = self.aircraft.get_frame()
+                    frame = frame_read.frame
+                    print("FRAME HAS BEEN READ FROM AIRCRAFT")
+                    # this happens when we lost the video feed from the drone
+
+                    if self.isPredict:
+                        if not self.cropName == "Cassava":
+                            img_detections, predictions = efficient_lite(
+                                frame,
+                                self.minProbability,
+                                self.minClass,
+                                self.isPredict,
+                                self.cropName,
+                            )
+                        else:
+                            img_detections, predictions = classify_cassava(frame)
+                        for prediction in predictions:
+                            if self.isFocus:
+                                self.prediction_dict.emit(prediction)
+
+                        # 🥸 AKO JOGODO abeg help me comment this line, try the next one make i see wetin go happen
+                        color_frame = cv2.cvtColor(img_detections, cv2.COLOR_BGR2RGB)
+
                         if self.isFocus:
-                            self.prediction_dict.emit(prediction)
+                            # Thread(save_images_periodically, [frame]).start()
+                            save_images_periodically(frame)
 
-                    # 🥸 AKO JOGODO abeg help me comment this line, try the next one make i see wetin go happen
-                    color_frame = cv2.cvtColor(img_detections, cv2.COLOR_BGR2RGB)
+                        # Creating and scaling QImage
+                        h, w, ch = color_frame.shape
+                        img = QImage(color_frame.data, w, h, ch * w, QImage.Format_RGB888)
+                        scaled_img = img.scaled(1200, 600, Qt.KeepAspectRatio)
+                        # # change self.predict back to false
+                        # if len(predictions) != 0:
+                        #     self.isPredict = False
+                        # Emit signal
+                        self.isFocus = False
+                        self.updateFrame.emit(scaled_img)
 
-                    if self.isFocus:
-                        # Thread(save_images_periodically, [frame]).start()
-                        save_images_periodically(frame)
+                        # get the aircraft status
+                        if not self.aircraft.get_status:
+                            self.aircraft.is_connected = False
 
-                    # Creating and scaling QImage
-                    h, w, ch = color_frame.shape
-                    img = QImage(color_frame.data, w, h, ch * w, QImage.Format_RGB888)
-                    scaled_img = img.scaled(1200, 600, Qt.KeepAspectRatio)
-                    # # change self.predict back to false
-                    # if len(predictions) != 0:
-                    #     self.isPredict = False
-                    # Emit signal
-                    self.isFocus = False
-                    self.updateFrame.emit(scaled_img)
+                    else:
+                        color_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        h, w, ch = color_frame.shape
+                        img = QImage(color_frame.data, w, h, ch * w, QImage.Format_RGB888)
+                        scaled_img = img.scaled(1200, 600, Qt.KeepAspectRatio)
+                        self.updateFrame.emit(scaled_img)
 
-                else:
-                    color_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    h, w, ch = color_frame.shape
-                    img = QImage(color_frame.data, w, h, ch * w, QImage.Format_RGB888)
-                    scaled_img = img.scaled(1200, 600, Qt.KeepAspectRatio)
-                    self.updateFrame.emit(scaled_img)
-                self.updateStatus.emit(True)
-            except Exception as e:
-                print("Could not connect to the drone")
-                print(e)
-                self.aircraft = None
-                self.aircraft = Aircraft()
-                self.isConnected = False
-                # self.aircraft.tello.cap.release()
+                        # get the aircraft status
+                        if not self.aircraft.get_status:
+                            self.aircraft.is_connected = False
+
+                    self.updateStatus.emit(True)
+                except Exception as e:
+                    print("Could not connect to the drone")
+                    print(e)
+                    self.aircraft = None
+                    self.isConnected = False
+                    
+                    self.updateFrame.emit(self.no_wifi)
+                    self.updateStatus.emit(False)
+                    # break
+            
+            else:
                 self.updateFrame.emit(self.no_wifi)
                 self.updateStatus.emit(False)
-                break
-
+                self.aircraft = None
         # self.exit(-1)
 
 
@@ -292,7 +308,7 @@ class MainWindow(QMainWindow):
         self.minClassification = DEFAULT_MIN_CLASS
         self.minProbability = DEFAULT_MIN_BOX
 
-        self.cropName = "Cassava"
+        self.cropName = "Maize"
         # holds the names of all the leafs predicted to be exported to csv
         self.leafs = []
         # holds the probabilities of the predictions to be exported to csv
@@ -457,7 +473,7 @@ class MainWindow(QMainWindow):
 
         # Combo box for selecting the disease detection neural network
         self.combobox = QComboBox()
-        self.combobox.addItems(["Tomato", "Maize", "Cassava", "Potato"])
+        self.combobox.addItems(["Maize", "Tomato", "Cassava", "Potato"])
 
         # self.cassava_button.setCheckState(Qt.CheckState.Checked)
 
@@ -562,31 +578,32 @@ class MainWindow(QMainWindow):
             self.drone_not_connected.exec()
 
     def joystick_handler(self):
-        battery = "Battery: {}%".format(self.th.aircraft.get_battery())
-        altitude = "Altitude: {}cm".format(self.th.aircraft.get_altitude())
-        self.battery_percentage.setText(battery)
-        self.altitude_label.setText(altitude)
+        if self.th.aircraft is not None:
+            battery = "Battery: {}%".format(self.th.aircraft.get_battery())
+            altitude = "Altitude: {}cm".format(self.th.aircraft.get_altitude())
+            self.battery_percentage.setText(battery)
+            self.altitude_label.setText(altitude)
 
-        for event in pygame.event.get():
-            if event.type == pygame.USEREVENT + 1:
-                self.th.aircraft.update()
-                #
-            elif event.type == pygame.JOYBUTTONDOWN:
-                self.keyPressed(event.button)
-            elif event.type == pygame.JOYBUTTONUP:
-                self.keyReleased(event.button)
-            elif event.type == pygame.JOYDEVICEADDED:
-                # This event will be generated when the program starts for any
-                # joystick, automatically detecting it without needing to create it manually.
-                self.joystick = pygame.joystick.Joystick(event.device_index)
-                self.connect_pad_button.setIcon(
-                    self.pad_icon_green
-                )  # make the pad icon green to signify active
-            elif event.type == pygame.JOYDEVICEREMOVED:
-                self.joystick = None
-                self.connect_pad_button.setIcon(
-                    self.pad_icon_gray
-                )  # make the pad icon grey to signify inactive
+            for event in pygame.event.get():
+                if event.type == pygame.USEREVENT + 1:
+                    self.th.aircraft.update()
+                    #
+                elif event.type == pygame.JOYBUTTONDOWN:
+                    self.keyPressed(event.button)
+                elif event.type == pygame.JOYBUTTONUP:
+                    self.keyReleased(event.button)
+                elif event.type == pygame.JOYDEVICEADDED:
+                    # This event will be generated when the program starts for any
+                    # joystick, automatically detecting it without needing to create it manually.
+                    self.joystick = pygame.joystick.Joystick(event.device_index)
+                    self.connect_pad_button.setIcon(
+                        self.pad_icon_green
+                    )  # make the pad icon green to signify active
+                elif event.type == pygame.JOYDEVICEREMOVED:
+                    self.joystick = None
+                    self.connect_pad_button.setIcon(
+                        self.pad_icon_gray
+                    )  # make the pad icon grey to signify inactive
 
     def keyPressed(self, key):
         """Update velocities based on key pressed
@@ -721,18 +738,15 @@ class MainWindow(QMainWindow):
             # data
             data = {"leaf": self.leafs, "probability": self.probabilities}
             df = pd.DataFrame(data)
-            # desktop path on unix
-            # desktop = os.path.join(os.path.join(os.path.expanduser('~')), 'Desktop')
-            # desktop path on windows
-            # desktop = os.path.join(os.path.join(os.environ["USERPROFILE"]), "Desktop")
-            desktop = os.path.expanduser("~/Desktop")
-            # get the current date time
-            current_dateTime = datetime.now()
-            filepath = Path(
-                f"{desktop}/leaf Disease Detection/predictions/result{current_dateTime}.csv"
-            )
-            filepath.parent.mkdir(parents=True, exist_ok=True)
-            df.to_csv(filepath)
+           
+            csv_path = os.path.join(base_folder,'results')
+            if not os.path.exists(csv_path):
+                os.makedirs(csv_path, exist_ok=True)
+
+
+            csvfile_name =os.path.join(csv_path, f'{uuid.uuid4().hex}.csv')
+            df.to_csv(csvfile_name)
+            print('File written to csv')
 
     @Slot()
     def threshold1Change(self):

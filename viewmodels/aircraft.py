@@ -21,7 +21,7 @@ S = 60
 
 # Frames per second of the pygame window display
 # A low number also results in input lag, as input information is processed once per frame.
-FPS = 180
+FPS = 60
 
 
 class Aircraft(object):
@@ -178,8 +178,10 @@ class Aircraft(object):
         try:
             status = self.tello.get_battery()
             print(f"this is the status of the drone {status}")
+            return True
         except:
             print("Could not get drone status cause it is not connected")
+            return False
 
     def get_altitude(self):
         """Returns the current altitude of the aircraft"""

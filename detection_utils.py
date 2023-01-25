@@ -21,7 +21,9 @@ def crop_and_resize(img, x, y, w, h):
     cropped_image = img[y:h, x:w]
     # resize the image to fit the model input shape
     print(cropped_image.shape)
-    resized_cropped_image = cropped_image
+    resized_cropped_image = cv2.resize(
+        cropped_image, INPUT_DIM, interpolation=cv2.INTER_AREA
+    )
     resized_cropped_image = np.expand_dims(resized_cropped_image, axis=0)
     resized_cropped_image = resized_cropped_image.astype(np.float32)
     resized_cropped_image = resized_cropped_image / 255

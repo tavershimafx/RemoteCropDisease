@@ -53,4 +53,4 @@ TOMATO_CLASSES = [
     "Tomato___Spider_mites Two-spotted_spider_mite",
 ]
 
-MAIZE_CLASSES = ["Common_Rust", "Blight", "Healthy", "Gray_Leaf_Spot"]
+MAIZE_CLASSES = ["Maize Common_Rust", "Maize Blight", "Maize Healthy", "Maize Gray_Leaf_Spot"]
