@@ -9,7 +9,7 @@ from tflite_support import metadata
 import cv2
 import tensorflow as tf
 import numpy as np
-from constants import CLASSES, TOMATO_CLASSES, MAIZE_CLASSES
+from constants import CLASSES, TOMATO_CLASSES, MAIZE_CLASSES, PEPPER_CLASSES
 
 Interpreter = tf.lite.Interpreter
 load_delegate = tf.lite.experimental.load_delegate
@@ -66,6 +66,18 @@ def maize_tflite_predict(input_model, data):
     return leaf_type, predicted_value
 
 
+def pepper_tflite_predict(input_model, data):
+    input_details = input_model.get_input_details()
+    # print(input_details)
+    output_details = input_model.get_output_details()
+    input_model.set_tensor(0, data)
+    input_model.invoke()
+    output_data = input_model.get_tensor(output_details[0]["index"])
+    predicted_value = output_data[0][np.argmax(output_data[0])]
+    leaf_type = PEPPER_CLASSES[np.argmax(output_data[0])]
+    return leaf_type, predicted_value
+
+
 def detect_green_and_area_threshold_2(img, threshold):
     lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
     # store the a-channel
@@ -109,6 +121,12 @@ tomato_tflite_model.allocate_tensors()
 # load the maize model
 maize_tflite_model = tf.lite.Interpreter("resources/maize_model.tflite", num_threads=1)
 maize_tflite_model.allocate_tensors()
+
+# load the pepper model
+pepper_tflite_model = tf.lite.Interpreter(
+    "resources/pepper_model.tflite", num_threads=1
+)
+pepper_tflite_model.allocate_tensors()
 
 
 class ObjectDetectorOptions(NamedTuple):
@@ -511,6 +529,8 @@ def visualize_classnames_with_mobilenet(
                 label, score = tomato_tflite_predict(tomato_tflite_model, resized_image)
             elif cropName == "Maize":
                 label, score = maize_tflite_predict(maize_tflite_model, resized_image)
+            elif cropName == "Pepper":
+                label, score = pepper_tflite_predict(pepper_tflite_model, resized_image)
             else:
                 label, score = tflite_predict(tflite_model, resized_image)
 
