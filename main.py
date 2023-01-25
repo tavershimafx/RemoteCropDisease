@@ -234,7 +234,7 @@ class Thread(QThread):
                             )
                         else:
                             img_detections, predictions = classify_cassava(frame)
-                            
+
                         for prediction in predictions:
                             if self.isFocus:
                                 self.prediction_dict.emit(prediction)
@@ -291,7 +291,7 @@ class Thread(QThread):
             altitude = "Altitude: {}cm".format(self.aircraft.get_altitude())
             self.battery.emit(battery)
             self.altitude.emit(altitude)
-            
+
             for event in pygame.event.get():
                 if event.type == pygame.USEREVENT + 1:
                     self.aircraft.update()
@@ -367,11 +367,6 @@ class Thread(QThread):
             self.aircraft.initite_takeoff()
 
 
-
-
-
-
-
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -388,7 +383,7 @@ class MainWindow(QMainWindow):
         self.minClassification = DEFAULT_MIN_CLASS
         self.minProbability = DEFAULT_MIN_BOX
 
-        self.cropName = "Maize"
+        self.cropName = "Default"
         # holds the names of all the leafs predicted to be exported to csv
         self.leafs = []
         # holds the probabilities of the predictions to be exported to csv
@@ -626,14 +621,18 @@ class MainWindow(QMainWindow):
     @Slot()
     def setPad(self, stat):
         if stat == True:
-            self.connect_pad_button.setIcon(self.pad_icon_green)  # make the pad icon green to signify active
+            self.connect_pad_button.setIcon(
+                self.pad_icon_green
+            )  # make the pad icon green to signify active
         else:
-            self.connect_pad_button.setIcon(self.pad_icon_gray)  # make the pad icon grey to signify inactive
-    
+            self.connect_pad_button.setIcon(
+                self.pad_icon_gray
+            )  # make the pad icon grey to signify inactive
+
     @Slot()
     def setBattery(self, val):
         self.battery_percentage.setText(val)
-    
+
     @Slot()
     def setAltitude(self, val):
         self.altitude_label.setText(val)

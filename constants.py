@@ -61,3 +61,6 @@ MAIZE_CLASSES = [
 ]
 
 PEPPER_CLASSES = ["Pepper,_bell___healthy", "Pepper,_bell___Bacterial_spot"]
+
+
+POTATO_CLASSES = ["Potato___healthy", "Potato___Late_blight", "Potato___Early_blight"]
