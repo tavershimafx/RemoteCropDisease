@@ -553,7 +553,7 @@ class MainWindow(QMainWindow):
 
         # Combo box for selecting the disease detection neural network
         self.combobox = QComboBox()
-        self.combobox.addItems(["Default", "Potato", "Maize", "Tomato", "Pepper"])
+        self.combobox.addItems(["Default", "Potato", "Maize", "Cassava", "Tomato", "Pepper"])
 
         # self.cassava_button.setCheckState(Qt.CheckState.Checked)
 
